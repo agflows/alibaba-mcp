@@ -140,6 +140,8 @@ footer a:focus-visible {
 .conversation-button:active { transform: scale(.985); }
 .copy-button:disabled { cursor: wait; opacity: .55; }
 .copy-button.copied { background: #167e50; }
+.install-button { text-decoration: none; }
+.install-button[hidden] { display: none; }
 .copy-button svg,
 .conversation-button svg {
   width: 17px;

@@ -3,6 +3,7 @@ export const BRIDGE_PORT = 17873;
 export const BRIDGE_URL = `ws://${BRIDGE_HOST}:${BRIDGE_PORT}`;
 export const DEFAULT_ACCESS: AccessMode = "write";
 export const PAIRING_TOKEN_BYTES = 32;
+export const DEVELOPMENT_EXTENSION_ID = "ligjbkljdnlcjpfglgjmflggigiomlic";
 
 export const SEND_APPROVAL_INSTRUCTION =
   "Get the user's explicit approval before sending. Show the exact conversation and the exact message text, wait for a clear yes, and only then call alibaba_send_message. Do not send, rewrite-and-send, or retry a send without a new approval.";
@@ -201,24 +202,19 @@ export function isExtensionUiSender(sender: { id?: string; url?: string }, exten
   }
 }
 
-export function formatAgentSetup(input: { token: string; extensionId: string; serverPath?: string }): string {
-  const serverPath = input.serverPath ?? "<PATH-TO-alibaba-mcp>/dist/server/index.js";
+export function formatAgentSetup(input: { serverPath?: string } = {}): string {
+  const serverPath = input.serverPath ?? "<installed-alibaba-mcp>/dist/server/index.js";
   const config = {
     mcpServers: {
       alibaba: {
         command: "node",
         args: [serverPath],
-        env: {
-          ALIBABA_MCP_TOKEN: input.token,
-          ALIBABA_MCP_EXTENSION_ID: input.extensionId,
-        },
       },
     },
   };
   return [
-    "Add this local MCP server to your agent configuration.",
-    "Replace <PATH-TO-alibaba-mcp> with the absolute path of your private checkout.",
-    "Keep the pairing token secret. Do not commit it, log it, or paste it into a chat.",
+    "The companion installer normally registers this local MCP server automatically.",
+    "This configuration contains no pairing secret; extension pairing is automatic.",
     "",
     JSON.stringify(config, null, 2),
     "",

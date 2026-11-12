@@ -213,7 +213,8 @@ async function attempt(bridge: ExtensionBridge, operation: () => Promise<unknown
 }
 
 export { ExtensionBridge } from "./bridge.js";
-export { BridgeConfigError, isLoopbackAddress, readBridgeConfigFromEnv, tokensMatch } from "./auth.js";
+export { authProof, BridgeConfigError, isLoopbackAddress, proofsMatch, readBridgeConfigFromEnv } from "./auth.js";
+export { loadOrCreatePairingState, resolvePairingDir } from "./pairing.js";
 export { AttachmentCache, ageFile, resolveCacheDir } from "./cache.js";
 export { downloadToCache } from "./transfer.js";
 export { createPairingToken } from "../shared/protocol.js";

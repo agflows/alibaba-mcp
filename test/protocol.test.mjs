@@ -57,11 +57,12 @@ test("pairing tokens are high entropy and setup text requires approval", () => {
   assert.equal(isValidExtensionId("q".repeat(32)), false);
   assert.equal(isValidExtensionId(extensionId.toUpperCase()), false);
 
-  const setup = formatAgentSetup({ token: first, extensionId });
+  const setup = formatAgentSetup();
   assert.match(setup, /explicit approval/);
   assert.match(setup, /dist\/server\/index\.js/);
-  assert.ok(setup.includes(first));
-  assert.ok(setup.includes(extensionId));
+  assert.equal(setup.includes(first), false);
+  assert.equal(setup.includes(extensionId), false);
+  assert.doesNotMatch(setup, /ALIBABA_MCP_TOKEN/);
   assert.equal(setup.includes(SEND_APPROVAL_INSTRUCTION), true);
   assert.match(setup, /Do not ask for or display Alibaba download URLs/);
   assert.doesNotMatch(setup, /cookie/i);

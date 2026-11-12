@@ -1,6 +1,7 @@
+import { randomBytes } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
-import { BridgeConfigError, isLoopbackAddress, tokensMatch } from "./auth.js";
+import { authProof, BridgeConfigError, isLoopbackAddress, proofsMatch } from "./auth.js";
 import {
   ATTACHMENT_CANCELLED,
   ATTACHMENT_FAILED,
@@ -16,7 +17,7 @@ import {
   BRIDGE_HOST,
   BRIDGE_PORT,
   isBridgeMethod,
-  isExactExtensionOrigin,
+  extensionOrigin,
   isValidExtensionId,
   isValidPairingToken,
   type BridgeMethod,
@@ -31,11 +32,12 @@ const DOWNLOAD_MAX_MS = 10 * 60 * 1000;
 
 export interface ExtensionBridgeOptions {
   token: string;
-  extensionId: string;
+  extensionIds: string[];
   port?: number;
   requestTimeoutMs?: number;
   heartbeatMs?: number;
   staleAfterMs?: number;
+  claimPairing?: () => Promise<boolean>;
 }
 
 interface PendingCall {
@@ -77,10 +79,11 @@ export class ExtensionBridge {
   readonly ready: Promise<void>;
   private readonly server: WebSocketServer;
   private readonly token: string;
-  private readonly extensionId: string;
+  private readonly extensionOrigins: Set<string>;
   private readonly requestTimeoutMs: number;
   private readonly heartbeatMs: number;
   private readonly staleAfterMs: number;
+  private readonly claimPairing: () => Promise<boolean>;
   private extension: WebSocket | null = null;
   private heartbeat: NodeJS.Timeout | null = null;
   private lastActivity = 0;
@@ -92,8 +95,8 @@ export class ExtensionBridge {
     if (!isValidPairingToken(options.token)) {
       throw new BridgeConfigError("Pairing token is missing or too weak.");
     }
-    if (!isValidExtensionId(options.extensionId)) {
-      throw new BridgeConfigError("Extension id must be the 32-character Chrome extension id.");
+    if (!options.extensionIds.length || options.extensionIds.some((id) => !isValidExtensionId(id))) {
+      throw new BridgeConfigError("At least one valid Chrome extension id is required.");
     }
     const port = options.port ?? BRIDGE_PORT;
     if (!Number.isInteger(port) || (port !== 0 && (port < 1024 || port > 65535))) {
@@ -101,10 +104,16 @@ export class ExtensionBridge {
     }
 
     this.token = options.token;
-    this.extensionId = options.extensionId;
+    this.extensionOrigins = new Set(options.extensionIds.map(extensionOrigin));
     this.requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
     this.heartbeatMs = options.heartbeatMs ?? 15_000;
     this.staleAfterMs = options.staleAfterMs ?? 45_000;
+    let pairingAvailable = true;
+    this.claimPairing = options.claimPairing ?? (async () => {
+      if (!pairingAvailable) return false;
+      pairingAvailable = false;
+      return true;
+    });
     this.server = new WebSocketServer({
       host: BRIDGE_HOST,
       port,
@@ -120,7 +129,7 @@ export class ExtensionBridge {
         socket.close(1008, "rejected");
         return;
       }
-      this.adopt(socket);
+      this.authenticate(socket);
     });
 
     this.ready = new Promise((resolve, reject) => {
@@ -265,8 +274,58 @@ export class ExtensionBridge {
 
   private handshakeAllowed(req: IncomingMessage): boolean {
     if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
-    if (!isExactExtensionOrigin(req.headers.origin, this.extensionId)) return false;
-    return tokensMatch(this.token, tokenFromRequest(req));
+    if (typeof req.headers.origin !== "string" || !this.extensionOrigins.has(req.headers.origin)) return false;
+    const raw = req.url;
+    if (!raw || raw.length > MAX_URL_LENGTH) return false;
+    try {
+      const url = new URL(raw, `http://${BRIDGE_HOST}`);
+      return url.pathname === "/" && url.search === "" && url.hash === "";
+    } catch {
+      return false;
+    }
+  }
+
+  private authenticate(socket: WebSocket): void {
+    const challenge = randomBytes(32).toString("base64url");
+    const timer = setTimeout(() => socket.close(1008, "authentication timeout"), 5_000);
+    const finish = () => clearTimeout(timer);
+    socket.once("close", finish);
+    socket.once("error", finish);
+    socket.once("message", async (data, isBinary) => {
+      if (isBinary) return socket.close(1008, "authentication required");
+      let record: Record<string, unknown>;
+      try {
+        record = JSON.parse(rawToString(data)) as Record<string, unknown>;
+      } catch {
+        return socket.close(1008, "authentication required");
+      }
+      if (record.type === "pair-request") {
+        finish();
+        let claimed = false;
+        try {
+          claimed = await this.claimPairing();
+        } catch {
+          socket.close(1011, "pairing state failed");
+          return;
+        }
+        if (!claimed) {
+          socket.send(JSON.stringify({ type: "pairing-unavailable" }), () => socket.close(1008, "pairing unavailable"));
+          return;
+        }
+        socket.send(JSON.stringify({ type: "pair-token", token: this.token }), () => socket.close(1000, "paired"));
+        return;
+      }
+      const proof = typeof record.proof === "string" ? record.proof : "";
+      if (record.type !== "auth-proof" || !proofsMatch(authProof(this.token, challenge), proof)) {
+        finish();
+        socket.send(JSON.stringify({ type: "pairing-required" }), () => socket.close(1008, "pairing required"));
+        return;
+      }
+      finish();
+      socket.send(JSON.stringify({ type: "auth-ok" }));
+      this.adopt(socket);
+    });
+    socket.send(JSON.stringify({ type: "auth-challenge", challenge }));
   }
 
   private adopt(socket: WebSocket): void {
@@ -504,21 +563,6 @@ export class ExtensionBridge {
       pending.reject(new Error(message));
     }
     this.pending.clear();
-  }
-}
-
-function tokenFromRequest(req: IncomingMessage): string {
-  const raw = req.url;
-  if (!raw || raw.length > MAX_URL_LENGTH) return "";
-  try {
-    const url = new URL(raw, `http://${BRIDGE_HOST}`);
-    if (url.pathname !== "/") return "";
-    for (const key of url.searchParams.keys()) {
-      if (key !== "token") return "";
-    }
-    return url.searchParams.get("token") ?? "";
-  } catch {
-    return "";
   }
 }
 

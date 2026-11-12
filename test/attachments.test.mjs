@@ -10,6 +10,7 @@ import { WebSocket } from "ws";
 import {
   AttachmentCache,
   ExtensionBridge,
+  authProof,
   ageFile,
   createAlibabaMcpServer,
   createPairingToken,
@@ -38,7 +39,7 @@ function bridgeOptions(token) {
   return {
     port: 0,
     token,
-    extensionId,
+    extensionIds: [extensionId],
     requestTimeoutMs: 2_000,
     heartbeatMs: 60_000,
     staleAfterMs: 60_000,
@@ -46,17 +47,21 @@ function bridgeOptions(token) {
 }
 
 function connectClient(bridge, token) {
-  const socket = new WebSocket(`ws://127.0.0.1:${bridge.port}/?token=${encodeURIComponent(token)}`, {
-    origin: `chrome-extension://${extensionId}`,
-  });
+  const socket = new WebSocket(`ws://127.0.0.1:${bridge.port}/`, { origin: `chrome-extension://${extensionId}` });
   socket.on("error", () => {});
+  socket.on("message", (data, isBinary) => {
+    if (isBinary) return;
+    const message = JSON.parse(String(data));
+    if (message.type === "auth-challenge") socket.send(JSON.stringify({ type: "auth-proof", proof: authProof(token, message.challenge) }));
+    if (message.type === "auth-ok") socket.emit("authenticated");
+  });
   return socket;
 }
 
 function opened(socket) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("timed out waiting for websocket open")), 2_000);
-    socket.once("open", () => {
+    socket.once("authenticated", () => {
       clearTimeout(timer);
       resolve();
     });

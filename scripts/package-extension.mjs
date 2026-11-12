@@ -8,6 +8,7 @@ const output = resolve(root, "dist", "alibaba-mcp-extension.zip");
 const entries = {};
 
 for (const file of await filesUnder(extensionDir)) {
+  if (file.endsWith(".map")) continue;
   const name = `extension/${relative(extensionDir, file).split(sep).join("/")}`;
   entries[name] = new Uint8Array(await readFile(file));
 }

@@ -18,11 +18,23 @@ const forbiddenFields = [
 await rm(out, { recursive: true, force: true });
 await mkdir(resolve(out, "server"), { recursive: true });
 await mkdir(resolve(out, "extension"), { recursive: true });
+await mkdir(resolve(out, "installer"), { recursive: true });
 
 const jobs = [
   {
     entryPoints: [resolve(root, "src/server/index.ts")],
     outfile: resolve(out, "server/index.js"),
+    bundle: true,
+    platform: "node",
+    target: "node20",
+    format: "esm",
+    packages: "external",
+    sourcemap: true,
+    banner: { js: "#!/usr/bin/env node" },
+  },
+  {
+    entryPoints: [resolve(root, "src/installer/index.ts")],
+    outfile: resolve(out, "installer/index.js"),
     bundle: true,
     platform: "node",
     target: "node20",
@@ -63,6 +75,7 @@ const jobs = [
 for (const name of ["manifest.json", "popup.html", "popup.css"]) {
   await cp(resolve(root, "src/extension", name), resolve(out, "extension", name));
 }
+await cp(resolve(root, "src/extension/icons"), resolve(out, "extension/icons"), { recursive: true });
 await stampExtension();
 
 if (watch) {
@@ -73,6 +86,7 @@ if (watch) {
 } else {
   await Promise.all(jobs.map((job) => build(job)));
   await chmod(resolve(out, "server/index.js"), 0o755);
+  await chmod(resolve(out, "installer/index.js"), 0o755);
   await assertServerBundle();
   console.log("Built dist/server and dist/extension");
 }

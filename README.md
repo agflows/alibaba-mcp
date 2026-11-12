@@ -4,48 +4,31 @@ Local Chrome extension and MCP server for your Alibaba messages. The extension r
 
 Access is one of **None**, **Read**, or **Read & write**. Read & write is the default. Agents are instructed to ask you before they send a message. Set the extension to Read or None when you want sending to be impossible.
 
-## Setup
+## Installation
 
-You need Node.js 20 or newer, Chrome 116 or newer (120 or newer reconnects faster), and a private checkout of this repo.
+The end-user release flow is deliberately configuration-free:
+
+1. Install **alibaba-mcp** from the Chrome Web Store.
+2. Run the signed companion-app installer once.
+3. Restart Cursor, sign in to Alibaba, and keep `https://message.alibaba.com/` open.
+
+The companion registers the MCP server automatically. The bridge creates its own private 32-byte pairing secret, and the extension pairs automatically. Users never copy tokens, environment variables, JSON, paths, or extension ids.
+
+The current source build includes the companion CLI for Cursor:
 
 ```bash
-git clone git@your-host:your-org/alibaba-mcp.git
-cd alibaba-mcp
 npm ci
-npm run check
+npm run build
+node dist/installer/index.js install
 ```
 
-`npm ci` installs the lockfile and builds `dist/` through the `prepare` script. Leave npm scripts enabled. Do not publish the package: `package.json` is `"private": true`.
+This source command is for development and release testing; the public release must wrap it in a signed native installer. `status` and `uninstall` are also supported. Configuration writes are atomic and existing Cursor configuration is backed up.
 
-1. Open `chrome://extensions`, turn on Developer mode, and choose **Load unpacked**. Select `dist/extension`.
-2. Pin alibaba-mcp. The extension id stays `ligjbkljdnlcjpfglgjmflggigiomlic` because the manifest carries a public key. The pairing token is the secret.
-3. Sign in to Alibaba yourself and leave `https://message.alibaba.com/` open in a normal Chrome window. The extension does not run in Incognito.
-4. Open the extension popup and choose **Copy agent setup**. Replace `<PATH-TO-alibaba-mcp>` with the absolute path of this checkout. Paste the snippet into your MCP client, then restart the agent.
+### Developer installation
 
-Cursor usually reads that snippet from `~/.cursor/mcp.json`. The copied block looks like this, with a real token and the extension id filled in:
+For local development only, load `dist/extension` unpacked and run `node dist/installer/index.js install`. The pinned development extension id is accepted automatically. After the first Chrome Web Store draft upload, add the assigned official extension id to the release allowlist before publishing the companion. End users must not use Developer mode.
 
-```json
-{
-  "mcpServers": {
-    "alibaba": {
-      "command": "node",
-      "args": ["/absolute/path/alibaba-mcp/dist/server/index.js"],
-      "env": {
-        "ALIBABA_MCP_TOKEN": "<pairing-token>",
-        "ALIBABA_MCP_EXTENSION_ID": "ligjbkljdnlcjpfglgjmflggigiomlic"
-      }
-    }
-  }
-}
-```
-
-`node` must be on the agent's PATH. If it is not, set `command` to the absolute path from `command -v node`.
-
-The popup shows **Agent bridge connected** when the agent has started the server and the extension has paired. Use `alibaba_status` first. Keep the Alibaba tab open while you work.
-
-Optional: set `ALIBABA_MCP_CACHE_DIR` to an absolute directory if you do not want attachment files under `~/.cache/alibaba-mcp/attachments`. A relative path is rejected.
-
-After a rebuild, choose **Reload** on `chrome://extensions` if the unpacked extension still has the previous scripts.
+The popup shows **Securely connected** after the agent launches the companion MCP process. Pairing uses a fresh HMAC challenge; the secret is not placed in the WebSocket URL, popup, MCP configuration, logs, or tool output. A new companion state can be claimed once. If this browser loses that claim, the popup says **Companion already paired**. Quit the agent, delete the private state directory (`~/.config/alibaba-mcp`, or `$XDG_CONFIG_HOME/alibaba-mcp`), and start the agent again. The extension then pairs on its own.
 
 ## Access and sending
 
@@ -57,9 +40,7 @@ After a rebuild, choose **Reload** on `chrome://extensions` if the unpacked exte
 
 The service worker blocks a call before it reaches the page. Status still reports whether the tab is open when access is None, without message text. The popup's **Copy conversation** button copies the currently selected chat as readable plain text. It works with Read or Read & write access and is disabled with None.
 
-`alibaba_send_message` is a real send. The server instructions, the tool description, and the copied setup all tell the agent to show you the exact conversation and text and wait for a clear yes. That is an instruction to the agent. The extension setting is the hard stop: switch to Read or None, or rotate the pairing token, and the previous agent config stops working until you copy the new one.
-
-Do not commit the copied snippet. It contains the pairing token. `.env` files are gitignored; this project does not need one.
+`alibaba_send_message` is a real send. The server instructions and tool description tell the agent to show you the exact conversation and text and wait for a clear yes. That is an instruction to the agent. The extension setting is the hard stop: switch to Read or None when sending must be impossible.
 
 ## Attachments
 
@@ -82,4 +63,4 @@ npm run package:extension
 
 ## What stays on this machine
 
-The browser keeps the Alibaba session. The extension reads the open messages tab and sends text to the agent only over the localhost socket. The server refuses every connection that is not from `127.0.0.1`, not from this extension's origin, or not holding the pairing token. Details and the remaining risks are in [SECURITY.md](SECURITY.md).
+The browser keeps the Alibaba session. The extension reads the open messages tab and sends text to the agent only over the localhost socket. The server requires loopback, an allowlisted Chrome extension origin, and a fresh HMAC proof before accepting commands. Details and remaining risks are in [SECURITY.md](SECURITY.md).

@@ -12,7 +12,6 @@ import {
   accessError,
   canRead,
   canWrite,
-  createPairingToken,
   isBridgePong,
   isExtensionUiSender,
   isValidPairingToken,
@@ -43,6 +42,8 @@ let pongWatchdog: ReturnType<typeof setTimeout> | undefined;
 let connectWatchdog: ReturnType<typeof setTimeout> | undefined;
 let reconnectDelay = RECONNECT_MIN_MS;
 let bridgeConnected = false;
+let pairingUnavailable = false;
+let connectStartedAt = 0;
 let bootPromise: Promise<void> | null = null;
 const downloads = new Map<string, AbortController>();
 
@@ -72,7 +73,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({
         accessMode,
         bridgeConnected,
-        bridgeToken,
+        pairingUnavailable,
+        paired: isValidPairingToken(bridgeToken),
         extensionId: chrome.runtime.id,
       });
     });
@@ -109,15 +111,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true;
   }
-  if (message?.type === "rotate-token") {
-    void boot().then(async () => {
-      bridgeToken = createPairingToken();
-      await chrome.storage.local.set({ bridgeToken });
-      reconnectNow();
-      sendResponse({ ok: true, bridgeToken });
-    });
-    return true;
-  }
   return;
 });
 
@@ -152,12 +145,8 @@ async function loadConfig(): Promise<void> {
     if (!normalized) await chrome.storage.local.set({ accessMode: "none" });
   }
   const storedToken = typeof stored.bridgeToken === "string" ? stored.bridgeToken : "";
-  if (isValidPairingToken(storedToken)) {
-    bridgeToken = storedToken;
-    return;
-  }
-  bridgeToken = createPairingToken();
-  await chrome.storage.local.set({ bridgeToken });
+  bridgeToken = isValidPairingToken(storedToken) ? storedToken : "";
+  if (storedToken && !bridgeToken) await chrome.storage.local.remove("bridgeToken");
 }
 
 async function ensureAlarm(): Promise<void> {
@@ -167,30 +156,17 @@ async function ensureAlarm(): Promise<void> {
 }
 
 function ensureConnected(): void {
-  if (!isValidPairingToken(bridgeToken)) return;
   if (socket?.readyState === WebSocket.OPEN) {
-    sendPing(socketGeneration, socket);
+    if (bridgeConnected) sendPing(socketGeneration, socket);
     return;
   }
-  if (socket?.readyState === WebSocket.CONNECTING) return;
+  if (socket?.readyState === WebSocket.CONNECTING) {
+    if (Date.now() - connectStartedAt <= CONNECT_TIMEOUT_MS) return;
+    const stalled = socket;
+    socket = null;
+    stalled.close();
+  }
   connect();
-}
-
-function reconnectNow(): void {
-  reconnectDelay = RECONNECT_MIN_MS;
-  clearTimeout(reconnectTimer);
-  retireSocket();
-  connect();
-}
-
-function retireSocket(): void {
-  socketGeneration += 1;
-  bridgeConnected = false;
-  clearSocketTimers();
-  abortDownloads();
-  const current = socket;
-  socket = null;
-  if (current && current.readyState !== WebSocket.CLOSED) current.close();
 }
 
 function abortDownloads(): void {
@@ -217,13 +193,11 @@ function scheduleReconnect(): void {
 }
 
 function connect(): void {
-  if (!isValidPairingToken(bridgeToken)) return;
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
 
   const generation = ++socketGeneration;
   const url = new URL(BRIDGE_URL);
   url.pathname = "/";
-  url.searchParams.set("token", bridgeToken);
   let ws: WebSocket;
   try {
     ws = new WebSocket(url.toString());
@@ -233,6 +207,7 @@ function connect(): void {
     return;
   }
   socket = ws;
+  connectStartedAt = Date.now();
   connectWatchdog = setTimeout(() => {
     if (generation === socketGeneration && ws.readyState === WebSocket.CONNECTING) ws.close();
   }, CONNECT_TIMEOUT_MS);
@@ -242,11 +217,8 @@ function connect(): void {
       ws.close();
       return;
     }
-    bridgeConnected = true;
-    reconnectDelay = RECONNECT_MIN_MS;
+    bridgeConnected = false;
     clearTimeout(connectWatchdog);
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = setInterval(() => sendPing(generation, ws), HEARTBEAT_MS);
   });
 
   ws.addEventListener("message", (event) => {
@@ -259,6 +231,7 @@ function connect(): void {
     abortDownloads();
     bridgeConnected = false;
     if (socket === ws) socket = null;
+    connectStartedAt = 0;
     clearInterval(heartbeatTimer);
     clearTimeout(pongWatchdog);
     clearTimeout(connectWatchdog);
@@ -288,6 +261,46 @@ async function onSocketMessage(generation: number, ws: WebSocket, data: unknown)
   } catch {
     return;
   }
+  if (message && typeof message === "object") {
+    const auth = message as Record<string, unknown>;
+    if (auth.type === "auth-challenge" && typeof auth.challenge === "string") {
+      if (isValidPairingToken(bridgeToken)) {
+        const proof = await browserAuthProof(bridgeToken, auth.challenge);
+        ws.send(JSON.stringify({ type: "auth-proof", proof }));
+      } else {
+        ws.send(JSON.stringify({ type: "pair-request" }));
+      }
+      return;
+    }
+    if (auth.type === "pair-token" && typeof auth.token === "string" && isValidPairingToken(auth.token)) {
+      pairingUnavailable = false;
+      bridgeToken = auth.token;
+      await chrome.storage.local.set({ bridgeToken });
+      ws.close(1000, "paired");
+      return;
+    }
+    if (auth.type === "pairing-required") {
+      pairingUnavailable = false;
+      bridgeToken = "";
+      await chrome.storage.local.remove("bridgeToken");
+      ws.close(1008, "pairing required");
+      return;
+    }
+    if (auth.type === "pairing-unavailable") {
+      pairingUnavailable = true;
+      ws.close(1008, "pairing unavailable");
+      return;
+    }
+    if (auth.type === "auth-ok") {
+      pairingUnavailable = false;
+      bridgeConnected = true;
+      reconnectDelay = RECONNECT_MIN_MS;
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(() => sendPing(generation, ws), HEARTBEAT_MS);
+      return;
+    }
+  }
+  if (!bridgeConnected) return;
   if (isBridgePong(message)) {
     clearTimeout(pongWatchdog);
     return;
@@ -433,6 +446,22 @@ function pageDiagnostics(value: unknown): unknown {
   delete page.href;
   delete page.downloadUrl;
   return page;
+}
+
+async function browserAuthProof(token: string, challenge: string): Promise<string> {
+  if (!isValidPairingToken(token) || !isValidPairingToken(challenge)) return "";
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(token),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(challenge)));
+  let binary = "";
+  for (const byte of signature) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 }
 
 async function getAlibabaTab(): Promise<chrome.tabs.Tab | undefined> {

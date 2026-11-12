@@ -4,13 +4,17 @@
   "description": "Local Chrome extension and MCP server for controlled access to your Alibaba messages.",
   "type": "module",
   "bin": {
-    "alibaba-mcp": "dist/server/index.js"
+    "alibaba-mcp": "dist/server/index.js",
+    "alibaba-mcp-setup": "dist/installer/index.js"
   },
   "files": [
     "dist/server",
+    "dist/installer",
     "dist/extension",
     "README.md",
     "SECURITY.md",
+    "PRIVACY.md",
+    "STORE_LISTING.md",
     "LICENSE"
   ],
   "scripts": {

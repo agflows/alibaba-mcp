@@ -20,6 +20,8 @@ test("package stays private and local checks do not call Alibaba", () => {
   assert.equal(pkg.scripts.check.includes("live-test"), false);
   assert.ok(pkg.files.includes("README.md"));
   assert.ok(pkg.files.includes("SECURITY.md"));
+  assert.ok(pkg.files.includes("PRIVACY.md"));
+  assert.ok(pkg.files.includes("STORE_LISTING.md"));
   assert.equal(pkg.dependencies["@modelcontextprotocol/sdk"] !== undefined, true);
   assert.equal(existsSync(resolve(root, "scripts/live-test.mjs")), false);
   assert.equal(existsSync(resolve(root, "scripts/package-extension.mjs")), true);
@@ -41,6 +43,9 @@ test("manifest is pinned, minimal, and localhost only", () => {
   assert.equal(manifest.incognito, "not_allowed");
   assert.equal(manifest.background.type, "module");
   assert.equal("externally_connectable" in manifest, false);
+  assert.equal(manifest.icons[128], "icons/icon128.png");
+  assert.equal(manifest.action.default_icon[32], "icons/icon32.png");
+  for (const size of [16, 32, 48, 128]) assert.equal(existsSync(resolve(root, `src/extension/icons/icon${size}.png`)), true);
   const policy = manifest.content_security_policy.extension_pages;
   const connect = policy
     .split(";")
@@ -68,6 +73,7 @@ test("local bridge code does not ask for cookies or a public bind", () => {
     "src/server/bridge.ts",
     "src/server/auth.ts",
     "src/server/app.ts",
+    "src/server/pairing.ts",
     "src/extension/background.ts",
     "src/extension/popup.ts",
     "src/extension/download.ts",
@@ -87,13 +93,25 @@ test("local bridge code does not ask for cookies or a public bind", () => {
   assert.match(background, /chrome\.runtime\.onStartup/);
   assert.match(background, /isExtensionUiSender/);
   assert.match(background, /BRIDGE_URL/);
+  assert.match(background, /pairing-unavailable/);
+  assert.match(background, /pairingUnavailable/);
   const bridge = read("src/server/bridge.ts");
-  assert.match(bridge, /tokensMatch/);
+  assert.match(bridge, /authProof/);
+  assert.match(bridge, /proofsMatch/);
+  assert.doesNotMatch(bridge, /searchParams\.set\("token"/);
   assert.match(bridge, /isLoopbackAddress/);
   assert.match(bridge, /BRIDGE_HOST/);
   const protocol = read("src/shared/protocol.ts");
   assert.match(protocol, /127\.0\.0\.1/);
   assert.match(protocol, /BRIDGE_PORT = 17873/);
+  const popup = read("src/extension/popup.ts") + read("src/extension/popup.html");
+  assert.doesNotMatch(popup, /rotate-token|pairing token|ALIBABA_MCP_TOKEN|\btoken\b/i);
+  assert.match(popup, /Companion already paired/);
+  assert.match(popup, /pairingUnavailable/);
+  assert.match(read("scripts/package-extension.mjs"), /endsWith\("\.map"\)/);
+  const pairing = read("src/server/pairing.ts");
+  assert.match(pairing, /0o700/);
+  assert.match(pairing, /0o600/);
   const cache = read("src/server/cache.ts");
   assert.doesNotMatch(cache, /child_process|execFile|spawn\(/);
   assert.match(cache, /0o700/);

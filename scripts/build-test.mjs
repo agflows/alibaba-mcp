@@ -24,6 +24,7 @@ await build({
     attachments: resolve(root, "src/shared/attachments.ts"),
     download: resolve(root, "src/extension/download.ts"),
     cache: resolve(root, "src/server/cache.ts"),
+    installer: resolve(root, "src/installer/index.ts"),
   },
   outdir: out,
   bundle: true,

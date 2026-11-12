@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { WebSocket } from "ws";
-import { ExtensionBridge, createAlibabaMcpServer } from "../.test-build/app.mjs";
+import { ExtensionBridge, authProof, createAlibabaMcpServer } from "../.test-build/app.mjs";
 import { SEND_APPROVAL_INSTRUCTION, createPairingToken } from "../.test-build/protocol.mjs";
 
 const extensionId = "c".repeat(32);
@@ -16,7 +16,7 @@ test("server instructions and send tool require explicit approval", async () => 
   const bridge = new ExtensionBridge({
     port: 0,
     token,
-    extensionId,
+    extensionIds: [extensionId],
     requestTimeoutMs: 1000,
     heartbeatMs: 60_000,
     staleAfterMs: 60_000,
@@ -80,17 +80,25 @@ test("server instructions and send tool require explicit approval", async () => 
     assert.match(disconnectedText, /not connected/i);
     assert.equal(disconnectedText.includes(token), false);
 
-    const socket = new WebSocket(`ws://127.0.0.1:${bridge.port}/?token=${encodeURIComponent(token)}`, {
+    const socket = new WebSocket(`ws://127.0.0.1:${bridge.port}/`, {
       origin: `chrome-extension://${extensionId}`,
     });
     socket.on("error", () => {});
+    const challengePending = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("authentication challenge missing")), 2000);
+      socket.once("message", (data) => { clearTimeout(timer); resolve(JSON.parse(String(data))); });
+    });
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("extension socket did not open")), 2000);
-      socket.once("open", () => {
-        clearTimeout(timer);
-        resolve();
-      });
+      socket.once("open", () => { clearTimeout(timer); resolve(); });
     });
+    const challenge = await challengePending;
+    const authenticated = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("authentication failed")), 2000);
+      socket.once("message", (data) => { clearTimeout(timer); JSON.parse(String(data)).type === "auth-ok" ? resolve() : reject(new Error("authentication failed")); });
+    });
+    socket.send(JSON.stringify({ type: "auth-proof", proof: authProof(token, challenge.challenge) }));
+    await authenticated;
 
     const pending = client.callTool({ name: "alibaba_status", arguments: {} });
     const raw = await new Promise((resolve, reject) => {

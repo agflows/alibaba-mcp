@@ -14,7 +14,7 @@
           <h1>alibaba-mcp</h1>
           <div class="status">
             <span class="status-dot" data-status-dot data-connected="false"></span>
-            <span data-status-text>Waiting for local agent</span>
+            <span data-status-text>Waiting for local companion</span>
           </div>
         </div>
       </header>
@@ -40,17 +40,13 @@
 
       <section aria-labelledby="setup-heading">
         <div class="section-copy">
-          <h2 id="setup-heading">Connect an agent</h2>
-          <p>Copy the local configuration, replace the path, and restart the agent.</p>
+          <h2 id="setup-heading">Local companion</h2>
+          <p data-companion-copy>Pairing is automatic. No configuration is required.</p>
         </div>
-        <button class="copy-button" type="button" data-copy disabled>
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <path d="M8 7V5.8C8 4.8 8.8 4 9.8 4h8.4c1 0 1.8.8 1.8 1.8v8.4c0 1-.8 1.8-1.8 1.8H17M5.8 8h8.4c1 0 1.8.8 1.8 1.8v8.4c0 1-.8 1.8-1.8 1.8H5.8c-1 0-1.8-.8-1.8-1.8V9.8C4 8.8 4.8 8 5.8 8Z" />
-          </svg>
-          <span data-copy-label>Copy agent setup</span>
-        </button>
-        <button class="text-button" type="button" data-rotate>Rotate pairing token</button>
-        <p class="privacy">Agents are instructed to ask you before they send. Downloads stay in a private local cache. Your Alibaba session stays in Chrome.</p>
+        <a class="copy-button install-button" href="https://github.com/agflows/alibaba-mcp/releases" target="_blank" rel="noreferrer" data-install>
+          Install companion app
+        </a>
+        <p class="privacy">The companion installer registers the MCP server with supported agents. Your Alibaba session stays in Chrome.</p>
       </section>
 
       <footer>
