@@ -13,7 +13,7 @@ The extension never requests the `cookies` permission, does not read `document.c
 ## Controls
 
 - The WebSocket server binds to `127.0.0.1` only. It checks the socket's remote address and ignores forwarded headers. Do not put a reverse proxy in front of it.
-- A connection must come from loopback and an allowlisted `chrome-extension://` origin. The development id is pinned; the official Chrome Web Store id must be added to the release allowlist after the first draft upload.
+- A connection must come from loopback and an allowlisted `chrome-extension://` origin. The published CRX id is pinned in the manifest `key`. The private signing key is not in this repository.
 - The server generates a 32-byte secret in its private state directory (`0700`, state file `0600`). A new state permits one origin-checked pairing claim; the claim is persisted before the extension receives the secret. A later claim is refused, and the popup reports that the companion is already paired. Delete that private state directory and restart the companion to pair again. The extension stores the secret in `chrome.storage.local`, never sync storage. A state file written before the claim flag existed is treated as already claimed.
 - Every connection uses a fresh 32-byte nonce and HMAC-SHA256 proof. The secret is not present in the WebSocket URL, MCP configuration, popup, logs, or tool output. Wrong and replayed proofs are rejected.
 - Popup messages are accepted only from this extension's own pages. A content script on the Alibaba origin cannot request pairing state.

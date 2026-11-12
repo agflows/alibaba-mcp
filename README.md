@@ -6,27 +6,31 @@ Access is one of **None**, **Read**, or **Read & write**. Read & write is the de
 
 ## Installation
 
-The end-user release flow is deliberately configuration-free:
+The extension is published as a `.crx` on GitHub, the same way [Chromium Web Store](https://github.com/NeverDecaf/chromium-web-store) is installed on ungoogled-chromium.
 
-1. Install **alibaba-mcp** from the Chrome Web Store.
-2. Run the signed companion-app installer once.
-3. Restart Cursor, sign in to Alibaba, and keep `https://message.alibaba.com/` open.
+1. On ungoogled-chromium, open `chrome://flags/#extension-mime-request-handling` and set it to **Always prompt for install**.
+2. Open [alibaba-mcp.crx](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.0/alibaba-mcp.crx) and confirm the install prompt.
 
-The companion registers the MCP server automatically. The bridge creates its own private 32-byte pairing secret, and the extension pairs automatically. Users never copy tokens, environment variables, JSON, paths, or extension ids.
+If that download is blocked, open `chrome://extensions`, turn on Developer mode, and drag the downloaded `.crx` onto the page. If drag-and-drop is blocked too, download [alibaba-mcp.zip](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.0/alibaba-mcp.zip), unzip it, and choose **Load unpacked**.
 
-The current source build includes the companion CLI for Cursor:
+Installed copies look for updates in [`updates.xml`](updates.xml). Chromium Web Store can install those updates when that extension is installed.
+
+The extension only talks to a companion process on this computer. After the extension is installed:
 
 ```bash
+git clone https://github.com/agflows/alibaba-mcp.git
+cd alibaba-mcp
 npm ci
-npm run build
 node dist/installer/index.js install
 ```
 
-This source command is for development and release testing; the public release must wrap it in a signed native installer. `status` and `uninstall` are also supported. Configuration writes are atomic and existing Cursor configuration is backed up.
+Restart Cursor, sign in to Alibaba, and keep `https://message.alibaba.com/` open. The companion registers the MCP server automatically. The bridge creates its own private 32-byte pairing secret, and the extension pairs automatically. Users never copy tokens, environment variables, JSON, paths, or extension ids.
+
+`status` and `uninstall` are also supported. Configuration writes are atomic and existing Cursor configuration is backed up. `npm ci` builds the companion through the `prepare` script.
 
 ### Developer installation
 
-For local development only, load `dist/extension` unpacked and run `node dist/installer/index.js install`. The pinned development extension id is accepted automatically. After the first Chrome Web Store draft upload, add the assigned official extension id to the release allowlist before publishing the companion. End users must not use Developer mode.
+For local development, load `dist/extension` unpacked and run `node dist/installer/index.js install`. The extension id pinned by `keys/extension.pem` is accepted automatically. That private key is not in git. Without it, a new package gets a different id and will not update an existing install. `npm run package:extension` writes `dist/alibaba-mcp.crx` and `dist/alibaba-mcp.zip`.
 
 The popup shows **Securely connected** after the agent launches the companion MCP process. Pairing uses a fresh HMAC challenge; the secret is not placed in the WebSocket URL, popup, MCP configuration, logs, or tool output. A new companion state can be claimed once. If this browser loses that claim, the popup says **Companion already paired**. Quit the agent, delete the private state directory (`~/.config/alibaba-mcp`, or `$XDG_CONFIG_HOME/alibaba-mcp`), and start the agent again. The extension then pairs on its own.
 
@@ -59,7 +63,7 @@ npm run dev
 npm run package:extension
 ```
 
-`npm test` builds the local test bundles and does not contact Alibaba. `npm run check` typechecks, tests, and rebuilds `dist/`. `npm run dev` rebuilds while you edit. `npm run package:extension` writes `dist/alibaba-mcp-extension.zip` for copying the unpacked extension to another machine you trust. Load that zip's `extension` folder unpacked. It is not a Chrome Web Store package.
+`npm test` builds the local test bundles and does not contact Alibaba. `npm run check` typechecks, tests, and rebuilds `dist/`. `npm run dev` rebuilds while you edit. `npm run package:extension` writes `dist/alibaba-mcp.crx` and `dist/alibaba-mcp.zip`. The CRX is the GitHub release install file. The zip is the unpacked fallback. Neither file contains source maps.
 
 ## What stays on this machine
 

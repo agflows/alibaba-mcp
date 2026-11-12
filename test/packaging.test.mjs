@@ -63,8 +63,16 @@ test("manifest is pinned, minimal, and localhost only", () => {
   const alphabet = "abcdefghijklmnop";
   let id = "";
   for (const byte of digest.subarray(0, 16)) id += alphabet[byte >> 4] + alphabet[byte & 15];
-  assert.equal(id, "ligjbkljdnlcjpfglgjmflggigiomlic");
-  assert.equal(JSON.parse(read("package.json")).version, manifest.version);
+  const version = JSON.parse(read("package.json")).version;
+  assert.equal(id, "ecklkjobkachpelpldagkdidgnjgpibf");
+  assert.match(read("src/shared/protocol.ts"), new RegExp(`DEVELOPMENT_EXTENSION_ID = "${id}"`));
+  assert.equal(manifest.update_url, "https://raw.githubusercontent.com/agflows/alibaba-mcp/main/updates.xml");
+  assert.equal(manifest.homepage_url, "https://github.com/agflows/alibaba-mcp");
+  const updates = read("updates.xml");
+  assert.match(updates, new RegExp(`appid='${id}'`));
+  assert.match(updates, new RegExp(`version='${version}'`));
+  assert.match(updates, new RegExp(`releases/download/v${version}/alibaba-mcp\\.crx`));
+  assert.equal(version, manifest.version);
 });
 
 test("local bridge code does not ask for cookies or a public bind", () => {

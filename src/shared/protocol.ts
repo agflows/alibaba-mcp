@@ -3,7 +3,7 @@ export const BRIDGE_PORT = 17873;
 export const BRIDGE_URL = `ws://${BRIDGE_HOST}:${BRIDGE_PORT}`;
 export const DEFAULT_ACCESS: AccessMode = "write";
 export const PAIRING_TOKEN_BYTES = 32;
-export const DEVELOPMENT_EXTENSION_ID = "ligjbkljdnlcjpfglgjmflggigiomlic";
+export const DEVELOPMENT_EXTENSION_ID = "ecklkjobkachpelpldagkdidgnjgpibf";
 
 export const SEND_APPROVAL_INSTRUCTION =
   "Get the user's explicit approval before sending. Show the exact conversation and the exact message text, wait for a clear yes, and only then call alibaba_send_message. Do not send, rewrite-and-send, or retry a send without a new approval.";

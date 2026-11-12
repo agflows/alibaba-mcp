@@ -1,5 +1,7 @@
 # Chrome Web Store listing draft
 
+The current release is the GitHub CRX described in the README. Its manifest `update_url` points at `updates.xml`, so this build is not a Chrome Web Store upload. Remove `update_url` before submitting a store package.
+
 ## Name
 alibaba-mcp
 

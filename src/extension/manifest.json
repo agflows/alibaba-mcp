@@ -5,7 +5,9 @@
   "description": "Give a local AI agent controlled access to your Alibaba conversations.",
   "minimum_chrome_version": "116",
   "incognito": "not_allowed",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkU7HaxQolk+B6jNNPTMEF6d1dsPDArSC6KZjPJnon/HmV9tb5lkWFXN3NBvCJu/sm4rUCdv3nVrvwxnyMIzs9fM41Zr6SJUdVGD9Q4crcSg2bd4og6ldKBe6GEnRMjKIgww8KSGzlxnhrj6CGmMcWQEizt6FoCgttIGx6wl45RG36qwFUhmuP5OqywR1pT7KW6VZ1T6nIC8MZl51GeqIQ/OqllTnWmL/LouJ7BbMp+q/HEaH68M5/x2AG/OUWPjPQUoQZfdg4FOhJzJejAIhtCHlCEfeXsAlQ7uwJaB54AjfaHqaWgTh638Zw6ltBBUBdXTCfWmYtKftUkzu48BKRwIDAQAB",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAss3XN+08J2GcXBBGbeDCdrh30WxuojdNXXNErv4Cbm178VhNaS/Fee/kS6SfhJ+vyuMMPgqLjBzJozldyuKFhB/einA8rjDdjQWeCx4acsx2YU4j5pekdQ5Be2o4b2MCQ3o5IavyDYqDL91CXwhB0KioLauyp+mBSm5gIoyEAj4sDJSaVyYVh0MO107AUEtsmcX3mFKEBVJBKKx7nmql8IMlBS9YNhhCWb3qGAkHxOVN1mild2Ekk8J7quQvHOO+IXkusVGO12FvWwc2UvMt47u+H7J94O5CYm1+ee5HXtPy1n52wgCG91s6QBs/hP1hjU1KYrN1qcFIWcN3y/dD5wIDAQAB",
+  "update_url": "https://raw.githubusercontent.com/agflows/alibaba-mcp/main/updates.xml",
+  "homepage_url": "https://github.com/agflows/alibaba-mcp",
   "permissions": ["alarms", "storage"],
   "host_permissions": [
     "https://*.aliyuncs.com/*",

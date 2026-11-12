@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .test-build/
+keys/
 *.zip
 .DS_Store
 .env
