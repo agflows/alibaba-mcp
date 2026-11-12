@@ -25,6 +25,7 @@ await build({
     download: resolve(root, "src/extension/download.ts"),
     cache: resolve(root, "src/server/cache.ts"),
     installer: resolve(root, "src/installer/index.ts"),
+    proxy: resolve(root, "src/proxy/server.ts"),
   },
   outdir: out,
   bundle: true,

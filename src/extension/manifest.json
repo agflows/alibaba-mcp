@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "alibaba-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Give a local AI agent controlled access to your Alibaba conversations.",
   "minimum_chrome_version": "116",
   "incognito": "not_allowed",
@@ -13,7 +13,8 @@
     "https://*.aliyuncs.com/*",
     "https://clouddisk.alibaba.com/*",
     "https://*.clouddisk.alibaba.com/*",
-    "https://message.alibaba.com/*"
+    "https://message.alibaba.com/*",
+    "https://alibaba-mcp-proxy.leogruetzner.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -42,6 +43,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; connect-src ws://127.0.0.1:17873 https://clouddisk.alibaba.com https://*.clouddisk.alibaba.com https://*.aliyuncs.com"
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; connect-src wss://alibaba-mcp-proxy.leogruetzner.com https://clouddisk.alibaba.com https://*.clouddisk.alibaba.com https://*.aliyuncs.com"
   }
 }

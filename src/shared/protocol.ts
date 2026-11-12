@@ -1,6 +1,8 @@
 export const BRIDGE_HOST = "127.0.0.1";
 export const BRIDGE_PORT = 17873;
 export const BRIDGE_URL = `ws://${BRIDGE_HOST}:${BRIDGE_PORT}`;
+export const PROXY_ORIGIN = "alibaba-mcp-proxy.leogruetzner.com";
+export const PROXY_URL = `wss://${PROXY_ORIGIN}/relay`;
 export const DEFAULT_ACCESS: AccessMode = "write";
 export const PAIRING_TOKEN_BYTES = 32;
 export const DEVELOPMENT_EXTENSION_ID = "ecklkjobkachpelpldagkdidgnjgpibf";
@@ -202,19 +204,21 @@ export function isExtensionUiSender(sender: { id?: string; url?: string }, exten
   }
 }
 
-export function formatAgentSetup(input: { serverPath?: string } = {}): string {
+export function formatAgentSetup(input: { serverPath?: string; proxyToken?: string } = {}): string {
   const serverPath = input.serverPath ?? "<installed-alibaba-mcp>/dist/server/index.js";
-  const config = {
-    mcpServers: {
-      alibaba: {
-        command: "node",
-        args: [serverPath],
-      },
-    },
+  const alibaba: { command: string; args: string[]; env?: { ALIBABA_MCP_PROXY_TOKEN: string } } = {
+    command: "node",
+    args: [serverPath],
   };
+  if (input.proxyToken !== undefined) {
+    if (!isValidPairingToken(input.proxyToken)) throw new Error("Relay secret is invalid.");
+    alibaba.env = { ALIBABA_MCP_PROXY_TOKEN: input.proxyToken };
+  }
+  const config = { mcpServers: { alibaba } };
   return [
-    "The companion installer normally registers this local MCP server automatically.",
-    "This configuration contains no pairing secret; extension pairing is automatic.",
+    input.proxyToken
+      ? `This secret routes the companion to this browser through ${PROXY_URL}. Keep it private.`
+      : "This configuration contains no relay secret. Copy the instructions from the extension to add one.",
     "",
     JSON.stringify(config, null, 2),
     "",

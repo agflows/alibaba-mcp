@@ -3,17 +3,42 @@ import { formatConversationForClipboard, type AccessMode } from "../shared/proto
 const statusDot = document.querySelector<HTMLElement>("[data-status-dot]")!;
 const statusText = document.querySelector<HTMLElement>("[data-status-text]")!;
 const copyConversationButton = document.querySelector<HTMLButtonElement>("[data-copy-conversation]")!;
+const copySetupButton = document.querySelector<HTMLButtonElement>("[data-copy-setup]")!;
 const installButton = document.querySelector<HTMLAnchorElement>("[data-install]")!;
 const companionCopy = document.querySelector<HTMLElement>("[data-companion-copy]")!;
 const options = [...document.querySelectorAll<HTMLButtonElement>("[data-access]")];
 let currentAccess: AccessMode = "write";
 let conversationCopyPending = false;
+let setupCopyPending = false;
 
 void refresh();
 const poll = window.setInterval(() => {
   void refresh();
 }, 1500);
 window.addEventListener("pagehide", () => window.clearInterval(poll));
+
+copySetupButton.addEventListener("click", async () => {
+  if (setupCopyPending) return;
+  setupCopyPending = true;
+  copySetupButton.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "copy-setup" });
+    if (!result?.ok || typeof result.text !== "string") throw new Error(typeof result?.error === "string" ? result.error : "Could not copy instructions");
+    await navigator.clipboard.writeText(result.text);
+    const label = copySetupButton.querySelector("[data-copy-setup-label]")!;
+    label.textContent = "Instructions copied";
+    copySetupButton.classList.add("copied");
+    window.setTimeout(() => {
+      label.textContent = "Copy instructions";
+      copySetupButton.classList.remove("copied");
+    }, 1600);
+  } catch (error) {
+    statusText.textContent = error instanceof Error ? error.message : "Could not copy instructions";
+  } finally {
+    setupCopyPending = false;
+    copySetupButton.disabled = false;
+  }
+});
 
 copyConversationButton.addEventListener("click", async () => {
   if (conversationCopyPending || currentAccess === "none") return;
@@ -72,12 +97,12 @@ async function refresh(): Promise<void> {
       ? "Securely connected"
       : unavailable
         ? "Companion already paired"
-        : "Waiting for local companion";
+        : "Waiting for companion";
     companionCopy.textContent = connected
-      ? "Secure pairing is active."
+      ? "Secure pairing is active. Copy the instructions if the agent is not registered yet."
       : unavailable
         ? "Reset the companion pairing state, then restart the agent."
-        : "Install the companion once; pairing and agent registration are automatic.";
+        : "Install the companion once, then copy the instructions into the agent.";
     installButton.hidden = connected || unavailable;
   } catch {
     statusText.textContent = "Extension unavailable";

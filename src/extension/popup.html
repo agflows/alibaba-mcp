@@ -14,7 +14,7 @@
           <h1>alibaba-mcp</h1>
           <div class="status">
             <span class="status-dot" data-status-dot data-connected="false"></span>
-            <span data-status-text>Waiting for local companion</span>
+            <span data-status-text>Waiting for companion</span>
           </div>
         </div>
       </header>
@@ -40,19 +40,22 @@
 
       <section aria-labelledby="setup-heading">
         <div class="section-copy">
-          <h2 id="setup-heading">Local companion</h2>
-          <p data-companion-copy>Pairing is automatic. No configuration is required.</p>
+          <h2 id="setup-heading">Companion</h2>
+          <p data-companion-copy>Pairing is automatic. Copy the instructions into the agent.</p>
         </div>
         <a class="copy-button install-button" href="https://github.com/agflows/alibaba-mcp/releases" target="_blank" rel="noreferrer" data-install>
           Install companion app
         </a>
+        <button class="copy-button setup-button" type="button" data-copy-setup>
+          <span data-copy-setup-label>Copy instructions</span>
+        </button>
         <p class="privacy">The companion installer registers the MCP server with supported agents. Your Alibaba session stays in Chrome.</p>
       </section>
 
       <footer>
-        <span class="local-pill">Local only</span>
+        <span class="local-pill">Private relay</span>
         <div class="footer-links">
-          <span class="endpoint">127.0.0.1:17873</span>
+          <span class="endpoint">alibaba-mcp-proxy.leogruetzner.com</span>
           <a href="https://github.com/agflows/alibaba-mcp" target="_blank" rel="noreferrer">Source</a>
         </div>
       </footer>

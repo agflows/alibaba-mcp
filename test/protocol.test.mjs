@@ -64,6 +64,12 @@ test("pairing tokens are high entropy and setup text requires approval", () => {
   assert.equal(setup.includes(extensionId), false);
   assert.doesNotMatch(setup, /ALIBABA_MCP_TOKEN/);
   assert.equal(setup.includes(SEND_APPROVAL_INSTRUCTION), true);
+  const routed = formatAgentSetup({ proxyToken: first });
+  assert.equal(routed.includes(first), true);
+  assert.match(routed, /ALIBABA_MCP_PROXY_TOKEN/);
+  assert.match(routed, /wss:\/\/alibaba-mcp-proxy\.leogruetzner\.com\/relay/);
+  assert.equal(routed.includes(SEND_APPROVAL_INSTRUCTION), true);
+  assert.throws(() => formatAgentSetup({ proxyToken: "short" }), /Relay secret is invalid/);
   assert.match(setup, /Do not ask for or display Alibaba download URLs/);
   assert.doesNotMatch(setup, /cookie/i);
 });

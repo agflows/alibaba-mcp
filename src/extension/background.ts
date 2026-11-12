@@ -7,11 +7,13 @@ import {
 } from "../shared/attachments.js";
 import { streamAttachment } from "./download.js";
 import {
-  BRIDGE_URL,
   DEFAULT_ACCESS,
+  PROXY_URL,
   accessError,
   canRead,
   canWrite,
+  createPairingToken,
+  formatAgentSetup,
   isBridgePong,
   isExtensionUiSender,
   isValidPairingToken,
@@ -34,6 +36,7 @@ import {
 
 let accessMode: AccessMode = DEFAULT_ACCESS;
 let bridgeToken = "";
+let proxyToken = "";
 let socket: WebSocket | null = null;
 let socketGeneration = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -93,6 +96,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+  if (message?.type === "copy-setup") {
+    void boot()
+      .then(() => {
+        sendResponse({ ok: true, text: formatAgentSetup({ proxyToken }) });
+      })
+      .catch((error: unknown) => {
+        sendResponse({ ok: false, error: publicError(error) });
+      });
+    return true;
+  }
   if (message?.type === "copy-conversation") {
     void boot()
       .then(async () => {
@@ -135,7 +148,7 @@ async function start(): Promise<void> {
 }
 
 async function loadConfig(): Promise<void> {
-  const stored = await chrome.storage.local.get({ accessMode: null, bridgeToken: "" });
+  const stored = await chrome.storage.local.get({ accessMode: null, bridgeToken: "", proxyToken: "" });
   if (stored.accessMode == null) {
     accessMode = DEFAULT_ACCESS;
     await chrome.storage.local.set({ accessMode });
@@ -147,6 +160,9 @@ async function loadConfig(): Promise<void> {
   const storedToken = typeof stored.bridgeToken === "string" ? stored.bridgeToken : "";
   bridgeToken = isValidPairingToken(storedToken) ? storedToken : "";
   if (storedToken && !bridgeToken) await chrome.storage.local.remove("bridgeToken");
+  const storedProxy = typeof stored.proxyToken === "string" ? stored.proxyToken : "";
+  proxyToken = isValidPairingToken(storedProxy) ? storedProxy : createPairingToken();
+  if (proxyToken !== storedProxy) await chrome.storage.local.set({ proxyToken });
 }
 
 async function ensureAlarm(): Promise<void> {
@@ -196,8 +212,8 @@ function connect(): void {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
 
   const generation = ++socketGeneration;
-  const url = new URL(BRIDGE_URL);
-  url.pathname = "/";
+  const url = new URL(PROXY_URL);
+  if (url.pathname !== "/relay") url.pathname = "/relay";
   let ws: WebSocket;
   try {
     ws = new WebSocket(url.toString());
@@ -219,6 +235,9 @@ function connect(): void {
     }
     bridgeConnected = false;
     clearTimeout(connectWatchdog);
+    if (isValidPairingToken(proxyToken)) {
+      ws.send(JSON.stringify({ type: "proxy-hello", role: "extension", token: proxyToken }));
+    }
   });
 
   ws.addEventListener("message", (event) => {

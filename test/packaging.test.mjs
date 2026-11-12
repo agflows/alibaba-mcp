@@ -37,6 +37,7 @@ test("manifest is pinned, minimal, and localhost only", () => {
   assert.deepEqual([...manifest.host_permissions].sort(), [
     "https://*.aliyuncs.com/*",
     "https://*.clouddisk.alibaba.com/*",
+    "https://alibaba-mcp-proxy.leogruetzner.com/*",
     "https://clouddisk.alibaba.com/*",
     "https://message.alibaba.com/*",
   ]);
@@ -55,10 +56,11 @@ test("manifest is pinned, minimal, and localhost only", () => {
     "https://*.aliyuncs.com",
     "https://*.clouddisk.alibaba.com",
     "https://clouddisk.alibaba.com",
-    "ws://127.0.0.1:17873",
+    "wss://alibaba-mcp-proxy.leogruetzner.com",
   ]);
   assert.match(policy, /script-src 'self'/);
-  assert.doesNotMatch(policy, /unsafe-eval|unsafe-inline|\bhttp:|\bwss:|message\.alibaba\.com/);
+  assert.doesNotMatch(policy, /unsafe-eval|unsafe-inline|\bhttp:|message\.alibaba\.com/);
+  assert.deepEqual(policy.match(/wss:\/\/[^\s;]+/g), ["wss://alibaba-mcp-proxy.leogruetzner.com"]);
   const digest = createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest();
   const alphabet = "abcdefghijklmnop";
   let id = "";
@@ -88,6 +90,7 @@ test("local bridge code does not ask for cookies or a public bind", () => {
     "src/server/cache.ts",
     "src/server/transfer.ts",
     "src/shared/attachments.ts",
+    "src/proxy/server.ts",
   ];
   for (const file of files) {
     const source = read(file);
@@ -100,7 +103,9 @@ test("local bridge code does not ask for cookies or a public bind", () => {
   assert.match(background, /chrome\.alarms/);
   assert.match(background, /chrome\.runtime\.onStartup/);
   assert.match(background, /isExtensionUiSender/);
-  assert.match(background, /BRIDGE_URL/);
+  assert.match(background, /PROXY_URL/);
+  assert.match(background, /proxy-hello/);
+  assert.match(background, /copy-setup/);
   assert.match(background, /pairing-unavailable/);
   assert.match(background, /pairingUnavailable/);
   const bridge = read("src/server/bridge.ts");
@@ -115,6 +120,9 @@ test("local bridge code does not ask for cookies or a public bind", () => {
   const popup = read("src/extension/popup.ts") + read("src/extension/popup.html");
   assert.doesNotMatch(popup, /rotate-token|pairing token|ALIBABA_MCP_TOKEN|\btoken\b/i);
   assert.match(popup, /Companion already paired/);
+  assert.match(popup, /Copy instructions/);
+  assert.match(popup, /copy-setup/);
+  assert.match(popup, /alibaba-mcp-proxy\.leogruetzner\.com/);
   assert.match(popup, /pairingUnavailable/);
   assert.match(read("scripts/package-extension.mjs"), /endsWith\("\.map"\)/);
   const pairing = read("src/server/pairing.ts");

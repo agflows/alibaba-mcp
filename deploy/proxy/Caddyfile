@@ -1,0 +1,3 @@
+alibaba-mcp-proxy.leogruetzner.com {
+	reverse_proxy alibaba-mcp-proxy:8080
+}

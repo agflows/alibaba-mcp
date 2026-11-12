@@ -33,10 +33,35 @@ test("companion setup installs, reports, backs up, and uninstalls without secret
   }
 });
 
-function run(command, config) {
+test("installer stores only a valid relay secret and does not print it", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "alibaba-installer-"));
+  const config = path.join(dir, "mcp.json");
+  const secret = "a".repeat(43);
+  try {
+    await run("install", config, { ALIBABA_MCP_PROXY_TOKEN: secret });
+    const installed = JSON.parse(await readFile(config, "utf8"));
+    assert.deepEqual(installed.mcpServers.alibaba.env, { ALIBABA_MCP_PROXY_TOKEN: secret });
+    const again = await run("install", config);
+    assert.equal(again.stdout.includes(secret), false);
+    assert.equal(again.stderr.includes(secret), false);
+    const kept = JSON.parse(await readFile(config, "utf8"));
+    assert.deepEqual(kept.mcpServers.alibaba.env, { ALIBABA_MCP_PROXY_TOKEN: secret });
+    const status = await run("status", config);
+    assert.equal(status.stdout.includes(secret), false);
+    await assert.rejects(run("install", config, { ALIBABA_MCP_PROXY_TOKEN: "short" }));
+    const unchanged = JSON.parse(await readFile(config, "utf8"));
+    assert.deepEqual(unchanged.mcpServers.alibaba.env, { ALIBABA_MCP_PROXY_TOKEN: secret });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+function run(command, config, extra = {}) {
   return new Promise((resolve, reject) => {
+    const env = { ...process.env, ALIBABA_MCP_CURSOR_CONFIG: config, ...extra };
+    if (!Object.prototype.hasOwnProperty.call(extra, "ALIBABA_MCP_PROXY_TOKEN")) delete env.ALIBABA_MCP_PROXY_TOKEN;
     const child = spawn(process.execPath, [cli, command], {
-      env: { ...process.env, ALIBABA_MCP_CURSOR_CONFIG: config },
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

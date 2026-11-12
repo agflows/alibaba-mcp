@@ -19,7 +19,7 @@ A separate signed companion-app installer is required because Chrome extensions 
 Controlled local access to the user's Alibaba Messages conversations for an MCP-compatible agent.
 
 ## Permission justifications
-- `storage`: stores the selected access mode and automatic local-pairing secret.
+- `storage`: stores the selected access mode, the automatic local-pairing secret, and this browser's relay routing secret.
 - `alarms`: wakes the Manifest V3 service worker to reconnect to the local companion.
 - `message.alibaba.com`: reads the visible inbox and sends only when Read & write is selected.
 - `clouddisk.alibaba.com` and `*.aliyuncs.com`: downloads user-requested chat attachments without browser credentials; final OSS hosts are validated in code.

@@ -1,6 +1,6 @@
 {
   "name": "alibaba-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local Chrome extension and MCP server for controlled access to your Alibaba messages.",
   "type": "module",
   "bin": {

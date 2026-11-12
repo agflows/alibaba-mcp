@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isValidPairingToken } from "../shared/protocol.js";
 
 const command = process.argv[2] ?? "install";
 const configuredPath = process.env.ALIBABA_MCP_CURSOR_CONFIG?.trim();
@@ -22,7 +23,9 @@ async function update(install: boolean): Promise<void> {
   const config = await readConfig();
   const servers = object(config.mcpServers);
   if (install) {
-    servers.alibaba = { command: process.execPath, args: [serverPath] };
+    const previous = object(servers.alibaba);
+    const env = relayEnv(previous);
+    servers.alibaba = { command: process.execPath, args: [serverPath], ...(env ? { env } : {}) };
   } else {
     delete servers.alibaba;
   }
@@ -57,6 +60,17 @@ async function readConfig(): Promise<Record<string, unknown>> {
     if (error && typeof error === "object" && (error as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw error;
   }
+}
+
+function relayEnv(previous: Record<string, any>): { ALIBABA_MCP_PROXY_TOKEN: string } | undefined {
+  const fromEnv = process.env.ALIBABA_MCP_PROXY_TOKEN?.trim() ?? "";
+  if (fromEnv) {
+    if (!isValidPairingToken(fromEnv)) throw new Error("Relay secret is missing or too weak.");
+    return { ALIBABA_MCP_PROXY_TOKEN: fromEnv };
+  }
+  const existing = previous.env?.ALIBABA_MCP_PROXY_TOKEN;
+  if (typeof existing === "string" && isValidPairingToken(existing)) return { ALIBABA_MCP_PROXY_TOKEN: existing };
+  return undefined;
 }
 
 function object(value: unknown): Record<string, any> {

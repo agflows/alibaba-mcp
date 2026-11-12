@@ -1,0 +1,23 @@
+services:
+  proxy:
+    build: .
+    image: alibaba-mcp-proxy:0.1.1
+    container_name: alibaba-mcp-proxy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true
+    name: smartmatch_default

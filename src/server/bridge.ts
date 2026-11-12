@@ -16,6 +16,8 @@ import {
 import {
   BRIDGE_HOST,
   BRIDGE_PORT,
+  PROXY_ORIGIN,
+  PROXY_URL,
   isBridgeMethod,
   extensionOrigin,
   isValidExtensionId,
@@ -85,6 +87,11 @@ export class ExtensionBridge {
   private readonly staleAfterMs: number;
   private readonly claimPairing: () => Promise<boolean>;
   private extension: WebSocket | null = null;
+  private proxySocket: WebSocket | null = null;
+  private proxyTimer: NodeJS.Timeout | null = null;
+  private proxyDelay = 1_000;
+  private proxyUrl = "";
+  private proxyToken = "";
   private heartbeat: NodeJS.Timeout | null = null;
   private lastActivity = 0;
   private closed = false;
@@ -260,16 +267,50 @@ export class ExtensionBridge {
     });
   }
 
+  connectProxy(url = PROXY_URL, token = this.proxyToken): void {
+    if (!isValidPairingToken(token)) throw new BridgeConfigError("Relay secret is missing or too weak.");
+    if (!allowedProxyUrl(url)) throw new BridgeConfigError("Relay URL is not the configured proxy.");
+    this.proxyUrl = url;
+    this.proxyToken = token;
+    this.dialProxy();
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    clearTimeout(this.proxyTimer ?? undefined);
+    this.proxyTimer = null;
     this.clearHeartbeat();
     this.failPending("Alibaba MCP bridge closed.");
     this.failAllDownloads("Alibaba MCP bridge closed.");
     const current = this.extension;
     this.extension = null;
     if (current && current.readyState !== WebSocket.CLOSED) current.close(1001, "bridge closed");
+    if (this.proxySocket && this.proxySocket.readyState !== WebSocket.CLOSED) this.proxySocket.close(1001, "bridge closed");
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
+  }
+
+  private dialProxy(): void {
+    if (this.closed || !this.proxyUrl || !this.proxyToken) return;
+    const socket = new WebSocket(this.proxyUrl, { handshakeTimeout: 10_000 });
+    this.proxySocket = socket;
+    socket.once("error", () => socket.close());
+    socket.once("open", () => {
+      if (this.closed || this.proxySocket !== socket) {
+        socket.close();
+        return;
+      }
+      this.proxyDelay = 1_000;
+      socket.send(JSON.stringify({ type: "proxy-hello", role: "agent", token: this.proxyToken }));
+      this.authenticate(socket);
+    });
+    socket.once("close", () => {
+      if (this.proxySocket === socket) this.proxySocket = null;
+      if (this.closed) return;
+      const delay = this.proxyDelay;
+      this.proxyDelay = Math.min(Math.round(this.proxyDelay * 1.7), 15_000);
+      this.proxyTimer = setTimeout(() => this.dialProxy(), delay);
+    });
   }
 
   private handshakeAllowed(req: IncomingMessage): boolean {
@@ -563,6 +604,18 @@ export class ExtensionBridge {
       pending.reject(new Error(message));
     }
     this.pending.clear();
+  }
+}
+
+function allowedProxyUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.username || url.password || url.search || url.hash || url.pathname !== "/relay") return false;
+    if (url.protocol === "wss:" && url.hostname === PROXY_ORIGIN && url.port === "") return true;
+    const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+    return url.protocol === "ws:" && loopback && url.port !== "";
+  } catch {
+    return false;
   }
 }
 

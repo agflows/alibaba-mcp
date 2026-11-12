@@ -19,6 +19,7 @@ await rm(out, { recursive: true, force: true });
 await mkdir(resolve(out, "server"), { recursive: true });
 await mkdir(resolve(out, "extension"), { recursive: true });
 await mkdir(resolve(out, "installer"), { recursive: true });
+await mkdir(resolve(out, "proxy"), { recursive: true });
 
 const jobs = [
   {
@@ -30,6 +31,16 @@ const jobs = [
     format: "esm",
     packages: "external",
     sourcemap: true,
+    banner: { js: "#!/usr/bin/env node" },
+  },
+  {
+    entryPoints: [resolve(root, "src/proxy/server.ts")],
+    outfile: resolve(out, "proxy/server.cjs"),
+    bundle: true,
+    platform: "node",
+    target: "node20",
+    format: "cjs",
+    sourcemap: false,
     banner: { js: "#!/usr/bin/env node" },
   },
   {
@@ -87,6 +98,7 @@ if (watch) {
   await Promise.all(jobs.map((job) => build(job)));
   await chmod(resolve(out, "server/index.js"), 0o755);
   await chmod(resolve(out, "installer/index.js"), 0o755);
+  await chmod(resolve(out, "proxy/server.cjs"), 0o755);
   await assertServerBundle();
   console.log("Built dist/server and dist/extension");
 }
@@ -108,6 +120,7 @@ function assertManifest(manifest) {
   const hosts = [
     "https://*.aliyuncs.com/*",
     "https://*.clouddisk.alibaba.com/*",
+    "https://alibaba-mcp-proxy.leogruetzner.com/*",
     "https://clouddisk.alibaba.com/*",
     "https://message.alibaba.com/*",
   ];
@@ -127,10 +140,16 @@ function assertManifest(manifest) {
     "https://*.aliyuncs.com",
     "https://*.clouddisk.alibaba.com",
     "https://clouddisk.alibaba.com",
-    "ws://127.0.0.1:17873",
+    "wss://alibaba-mcp-proxy.leogruetzner.com",
   ].sort();
-  if (JSON.stringify(connectSources) !== JSON.stringify(allowedConnect) || /unsafe-eval|unsafe-inline|\bhttp:|\bwss:|message\.alibaba\.com/.test(policy)) {
-    throw new Error("Extension CSP connect-src must list only the localhost bridge and the attachment hosts.");
+  const wssHosts = policy.match(/wss:\/\/[^\s;]+/g) ?? [];
+  if (
+    JSON.stringify(connectSources) !== JSON.stringify(allowedConnect) ||
+    wssHosts.length !== 1 ||
+    wssHosts[0] !== "wss://alibaba-mcp-proxy.leogruetzner.com" ||
+    /unsafe-eval|unsafe-inline|\bhttp:|message\.alibaba\.com/.test(policy)
+  ) {
+    throw new Error("Extension CSP connect-src must list only the private relay and the attachment hosts.");
   }
   if (manifest.background?.service_worker !== "background.js" || manifest.background?.type !== "module") {
     throw new Error("Background must be an MV3 module service worker.");
