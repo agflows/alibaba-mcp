@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "alibaba-mcp",
+  "version": "0.1.0",
+  "description": "Give a local AI agent controlled access to your Alibaba conversations.",
+  "minimum_chrome_version": "116",
+  "incognito": "not_allowed",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkU7HaxQolk+B6jNNPTMEF6d1dsPDArSC6KZjPJnon/HmV9tb5lkWFXN3NBvCJu/sm4rUCdv3nVrvwxnyMIzs9fM41Zr6SJUdVGD9Q4crcSg2bd4og6ldKBe6GEnRMjKIgww8KSGzlxnhrj6CGmMcWQEizt6FoCgttIGx6wl45RG36qwFUhmuP5OqywR1pT7KW6VZ1T6nIC8MZl51GeqIQ/OqllTnWmL/LouJ7BbMp+q/HEaH68M5/x2AG/OUWPjPQUoQZfdg4FOhJzJejAIhtCHlCEfeXsAlQ7uwJaB54AjfaHqaWgTh638Zw6ltBBUBdXTCfWmYtKftUkzu48BKRwIDAQAB",
+  "permissions": ["alarms", "storage"],
+  "host_permissions": [
+    "https://*.aliyuncs.com/*",
+    "https://clouddisk.alibaba.com/*",
+    "https://*.clouddisk.alibaba.com/*",
+    "https://message.alibaba.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "alibaba-mcp",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://message.alibaba.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; connect-src ws://127.0.0.1:17873 https://clouddisk.alibaba.com https://*.clouddisk.alibaba.com https://*.aliyuncs.com"
+  }
+}
