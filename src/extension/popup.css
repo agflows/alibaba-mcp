@@ -99,6 +99,7 @@ section {
 .segmented button:hover { color: #202024; }
 .segmented button:focus-visible,
 .copy-button:focus-visible,
+.conversation-button:focus-visible,
 .text-button:focus-visible,
 footer a:focus-visible {
   outline: 3px solid rgba(255, 99, 0, .25);
@@ -116,7 +117,8 @@ footer a:focus-visible {
   font-size: 11px;
 }
 
-.copy-button {
+.copy-button,
+.conversation-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -134,10 +136,12 @@ footer a:focus-visible {
   transition: transform .12s ease, background .12s ease;
 }
 .copy-button:hover { background: #303035; }
-.copy-button:active { transform: scale(.985); }
+.copy-button:active,
+.conversation-button:active { transform: scale(.985); }
 .copy-button:disabled { cursor: wait; opacity: .55; }
 .copy-button.copied { background: #167e50; }
-.copy-button svg {
+.copy-button svg,
+.conversation-button svg {
   width: 17px;
   fill: none;
   stroke: currentColor;
@@ -145,6 +149,24 @@ footer a:focus-visible {
   stroke-linejoin: round;
   stroke-width: 1.8;
 }
+
+.conversation-button {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 14px;
+  border: 1px solid #dedee2;
+  border-radius: 11px;
+  color: #29292d;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.conversation-button:hover { border-color: #ffc39e; background: #fff8f3; }
+.conversation-button:disabled { cursor: not-allowed; opacity: .48; }
+.conversation-button.copied { color: #146c45; border-color: #b9ddc9; background: #eff9f3; }
 
 footer {
   display: flex;

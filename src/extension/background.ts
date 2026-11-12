@@ -91,6 +91,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+  if (message?.type === "copy-conversation") {
+    void boot()
+      .then(async () => {
+        if (!canRead(accessMode)) throw new Error("Set chat access to Read or Read & write first.");
+        const page = await askTab("get_page_status", {});
+        const selectedConversationId =
+          page && typeof page === "object" && typeof (page as { selectedConversationId?: unknown }).selectedConversationId === "string"
+            ? (page as { selectedConversationId: string }).selectedConversationId
+            : "";
+        if (!selectedConversationId) throw new Error("Select an Alibaba conversation first.");
+        const conversation = await askTab("get_conversation", { conversationId: selectedConversationId, limit: 500 });
+        sendResponse({ ok: true, conversation });
+      })
+      .catch((error: unknown) => {
+        sendResponse({ ok: false, error: publicError(error) });
+      });
+    return true;
+  }
   if (message?.type === "rotate-token") {
     void boot().then(async () => {
       bridgeToken = createPairingToken();

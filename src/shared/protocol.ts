@@ -113,6 +113,37 @@ export function isBridgeMethod(method: string): method is BridgeMethod {
   return BRIDGE_METHODS.has(method as BridgeMethod);
 }
 
+export function formatConversationForClipboard(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Conversation is unavailable.");
+  const record = value as { title?: unknown; messages?: unknown };
+  const title = cleanClipboardText(record.title, "Alibaba conversation");
+  if (!Array.isArray(record.messages)) throw new Error("Conversation is unavailable.");
+  const lines = [title, ""];
+  for (const item of record.messages.slice(-500)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const message = item as { sender?: unknown; text?: unknown; timestamp?: unknown; direction?: unknown };
+    const text = cleanClipboardText(message.text, "");
+    if (!text) continue;
+    const sender = message.direction === "outgoing" ? "You" : cleanClipboardText(message.sender, "Supplier");
+    const timestamp = cleanClipboardText(message.timestamp, "");
+    const prefix = timestamp ? `[${timestamp}] ` : "";
+    lines.push(`${prefix}${sender}: ${text.replace(/\n/g, "\n  ")}`);
+  }
+  if (lines.length === 2) lines.push("(No messages in this conversation)");
+  return lines.join("\n");
+}
+
+function cleanClipboardText(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const text = value
+    .replace(/https:\/\/[^\s<>"']*(?:clouddisk\.alibaba\.com|(?:[^./]+\.)?oss(?:-[a-z0-9-]+)?\.aliyuncs\.com)[^\s<>"']*/gi, "[attachment link removed]")
+    .replace(/([?&](?:chatToken|activeAccountIdEncrypt|token|signature|ossaccesskeyid|security-token)=)[^&\s]+/gi, "$1[redacted]")
+    .replace(/\b(?:cookie|authorization|x-auth-token)\b\s*[:=]\s*\S+/gi, "[credential removed]")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+  return text || fallback;
+}
+
 export function isValidPairingToken(token: string): boolean {
   return TOKEN_PATTERN.test(token);
 }

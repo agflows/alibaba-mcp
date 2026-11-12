@@ -1,11 +1,14 @@
-import { formatAgentSetup, type AccessMode } from "../shared/protocol.js";
+import { formatAgentSetup, formatConversationForClipboard, type AccessMode } from "../shared/protocol.js";
 
 const statusDot = document.querySelector<HTMLElement>("[data-status-dot]")!;
 const statusText = document.querySelector<HTMLElement>("[data-status-text]")!;
 const copyButton = document.querySelector<HTMLButtonElement>("[data-copy]")!;
+const copyConversationButton = document.querySelector<HTMLButtonElement>("[data-copy-conversation]")!;
 const rotateButton = document.querySelector<HTMLButtonElement>("[data-rotate]")!;
 const options = [...document.querySelectorAll<HTMLButtonElement>("[data-access]")];
 let bridgeToken = "";
+let currentAccess: AccessMode = "write";
+let conversationCopyPending = false;
 
 void refresh();
 const poll = window.setInterval(() => {
@@ -32,6 +35,30 @@ copyButton.addEventListener("click", async () => {
     label.textContent = "Copy agent setup";
     copyButton.classList.remove("copied");
   }, 1600);
+});
+
+copyConversationButton.addEventListener("click", async () => {
+  if (conversationCopyPending || currentAccess === "none") return;
+  conversationCopyPending = true;
+  copyConversationButton.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "copy-conversation" });
+    if (!result?.ok) throw new Error(typeof result?.error === "string" ? result.error : "Could not read conversation");
+    const text = formatConversationForClipboard(result.conversation);
+    await navigator.clipboard.writeText(text);
+    const label = copyConversationButton.querySelector("[data-copy-conversation-label]")!;
+    label.textContent = "Conversation copied";
+    copyConversationButton.classList.add("copied");
+    window.setTimeout(() => {
+      label.textContent = "Copy conversation";
+      copyConversationButton.classList.remove("copied");
+    }, 1600);
+  } catch (error) {
+    statusText.textContent = error instanceof Error ? error.message : "Could not copy conversation";
+  } finally {
+    conversationCopyPending = false;
+    updateCopyConversationButton();
+  }
 });
 
 rotateButton.addEventListener("click", async () => {
@@ -84,10 +111,19 @@ async function refresh(): Promise<void> {
 }
 
 function renderAccess(mode: AccessMode): void {
+  currentAccess = mode;
+  updateCopyConversationButton();
   for (const option of options) {
     const selected = option.dataset.access === mode;
     option.classList.toggle("selected", selected);
     option.setAttribute("aria-checked", String(selected));
     option.tabIndex = selected ? 0 : -1;
   }
+}
+
+function updateCopyConversationButton(): void {
+  copyConversationButton.disabled = conversationCopyPending || currentAccess === "none";
+  copyConversationButton.title = currentAccess === "none"
+    ? "Set chat access to Read or Read & write first"
+    : "Copy the selected Alibaba conversation";
 }

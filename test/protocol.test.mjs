@@ -7,6 +7,7 @@ import {
   canWrite,
   createPairingToken,
   formatAgentSetup,
+  formatConversationForClipboard,
   isExactExtensionOrigin,
   isExtensionUiSender,
   isValidExtensionId,
@@ -64,6 +65,28 @@ test("pairing tokens are high entropy and setup text requires approval", () => {
   assert.equal(setup.includes(SEND_APPROVAL_INSTRUCTION), true);
   assert.match(setup, /Do not ask for or display Alibaba download URLs/);
   assert.doesNotMatch(setup, /cookie/i);
+});
+
+test("conversation clipboard text is readable and removes attachment credentials", () => {
+  const copied = formatConversationForClipboard({
+    title: "Felix — Supplier",
+    messages: [
+      { direction: "incoming", sender: "Felix", timestamp: "10:00", text: "Hello\nSecond line" },
+      {
+        direction: "outgoing",
+        sender: "Account name",
+        text: "File: https://bucket.oss-us-east-1.aliyuncs.com/a.pdf?Signature=secret",
+      },
+      { direction: "incoming", sender: "Felix", text: "Reference: https://example.com/public" },
+    ],
+  });
+  assert.match(copied, /^Felix — Supplier/m);
+  assert.match(copied, /\[10:00\] Felix: Hello\n  Second line/);
+  assert.match(copied, /You: File: \[attachment link removed\]/);
+  assert.match(copied, /https:\/\/example\.com\/public/);
+  assert.doesNotMatch(copied, /aliyuncs|Signature=secret/);
+  assert.throws(() => formatConversationForClipboard(null), /unavailable/i);
+  assert.match(formatConversationForClipboard({ title: "Empty", messages: [] }), /No messages/);
 });
 
 test("page urls keep the path and drop the query", () => {

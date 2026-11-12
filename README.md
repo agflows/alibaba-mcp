@@ -55,7 +55,7 @@ After a rebuild, choose **Reload** on `chrome://extensions` if the unpacked exte
 | Read | Yes | No |
 | Read & write | Yes | Yes |
 
-The service worker blocks a call before it reaches the page. Status still reports whether the tab is open when access is None, without message text.
+The service worker blocks a call before it reaches the page. Status still reports whether the tab is open when access is None, without message text. The popup's **Copy conversation** button copies the currently selected chat as readable plain text. It works with Read or Read & write access and is disabled with None.
 
 `alibaba_send_message` is a real send. The server instructions, the tool description, and the copied setup all tell the agent to show you the exact conversation and text and wait for a clear yes. That is an instruction to the agent. The extension setting is the hard stop: switch to Read or None, or rotate the pairing token, and the previous agent config stops working until you copy the new one.
 
