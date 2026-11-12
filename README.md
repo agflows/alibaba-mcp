@@ -24,7 +24,7 @@ npm ci
 node dist/installer/index.js install
 ```
 
-Open the extension and choose **Copy instructions**. Paste that text where the agent reads MCP configuration. It contains this browser's relay secret, so the proxy can match the companion to this extension. Keep that secret private. Restart Cursor, sign in to Alibaba, and keep `https://message.alibaba.com/` open. HMAC pairing inside the relay is still automatic.
+Open the extension and choose **Copy instructions**. The copied text includes a JSON block with this browser's relay secret. Put that block in Cursor's MCP configuration, or give the whole text to the agent so it can do that. Keep the secret private. Restart Cursor, sign in to Alibaba, and keep `https://message.alibaba.com/` open. HMAC pairing inside the relay is still automatic.
 
 `status` and `uninstall` are also supported. Configuration writes are atomic and existing Cursor configuration is backed up. `npm ci` builds the companion through the `prepare` script.
 
