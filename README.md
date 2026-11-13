@@ -9,9 +9,9 @@ Access is one of **None**, **Read**, or **Read & write**. Read & write is the de
 The extension is published as a `.crx` on GitHub, the same way [Chromium Web Store](https://github.com/NeverDecaf/chromium-web-store) is installed on ungoogled-chromium.
 
 1. On ungoogled-chromium, open `chrome://flags/#extension-mime-request-handling` and set it to **Always prompt for install**.
-2. Open [alibaba-mcp.crx](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.2/alibaba-mcp.crx) and confirm the install prompt.
+2. Open [alibaba-mcp.crx](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.3/alibaba-mcp.crx) and confirm the install prompt.
 
-If that download is blocked, open `chrome://extensions`, turn on Developer mode, and drag the downloaded `.crx` onto the page. If drag-and-drop is blocked too, download [alibaba-mcp.zip](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.2/alibaba-mcp.zip), unzip it, and choose **Load unpacked**.
+If that download is blocked, open `chrome://extensions`, turn on Developer mode, and drag the downloaded `.crx` onto the page. If drag-and-drop is blocked too, download [alibaba-mcp.zip](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.3/alibaba-mcp.zip), unzip it, and choose **Load unpacked**.
 
 Installed copies look for updates in [`updates.xml`](updates.xml). Chromium Web Store can install those updates when that extension is installed.
 

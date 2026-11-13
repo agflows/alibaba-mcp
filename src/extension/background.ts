@@ -24,6 +24,7 @@ import {
   type BridgeCommand,
   type BridgeResponse,
 } from "../shared/protocol.js";
+import { messengerScriptMissing, messengerTabUnloaded } from "./tab-attach.js";
 import {
   CONNECT_TIMEOUT_MS,
   HEARTBEAT_MS,
@@ -49,6 +50,7 @@ let pairingUnavailable = false;
 let connectStartedAt = 0;
 let bootPromise: Promise<void> | null = null;
 const downloads = new Map<string, AbortController>();
+let restorePromise: Promise<void> | null = null;
 
 chrome.runtime.onInstalled.addListener(() => {
   void boot();
@@ -64,8 +66,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, info, tab) => {
-  if (info.status !== "complete") return;
   if (!tab.url?.startsWith("https://message.alibaba.com/")) return;
+  if (tab.id != null && info.status === "complete") {
+    void chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => undefined);
+  }
+  if (info.status !== "complete") return;
   void boot();
 });
 
@@ -144,6 +149,7 @@ function boot(): Promise<void> {
 async function start(): Promise<void> {
   await loadConfig();
   await ensureAlarm();
+  void keepMessengerTabsLoaded();
   ensureConnected();
 }
 
@@ -414,8 +420,19 @@ async function runDownload(request: BridgeCommand, generation: number, ws: WebSo
 async function askTab(method: string, params: Record<string, unknown>): Promise<unknown> {
   const tab = await getAlibabaTab();
   if (!tab?.id) throw new Error("Open https://message.alibaba.com/ in a logged-in Chrome tab.");
+  if (messengerTabUnloaded(tab)) await restoreMessengerTab(tab.id);
   const timeoutMs = method === "get_conversation" || method === "send_message" ? 35_000 : 12_000;
-  const result = await sendToTab(tab.id, { type: "alibaba-mcp-request", method, params }, timeoutMs);
+  try {
+    return await readTabResult(tab.id, method, params, timeoutMs);
+  } catch (error) {
+    if (!messengerScriptMissing(error)) throw error;
+    await restoreMessengerTab(tab.id);
+    return readTabResult(tab.id, method, params, timeoutMs);
+  }
+}
+
+async function readTabResult(tabId: number, method: string, params: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
+  const result = await sendToTab(tabId, { type: "alibaba-mcp-request", method, params }, timeoutMs);
   if (!result?.ok) throw new Error(typeof result?.error === "string" ? result.error : "Alibaba page request failed.");
   return result.result;
 }
@@ -464,16 +481,78 @@ async function statusResult(): Promise<Record<string, unknown>> {
   if (!canRead(accessMode) || !tab?.id) return result;
   if (tab.url) result.tabUrl = safePageUrl(tab.url);
   try {
-    const response = await sendToTab(tab.id, {
-      type: "alibaba-mcp-request",
-      method: "get_page_status",
-      params: {},
-    }, 4_000);
-    result.page = response?.ok ? pageDiagnostics(response.result) : { error: response?.error };
+    if (messengerTabUnloaded(tab)) await restoreMessengerTab(tab.id);
+    result.page = await pageStatusFromTab(tab.id);
   } catch (error) {
-    result.page = { error: error instanceof Error ? error.message : String(error) };
+    if (!messengerScriptMissing(error) || tab.id == null) {
+      result.page = { error: error instanceof Error ? error.message : String(error) };
+      return result;
+    }
+    try {
+      await restoreMessengerTab(tab.id);
+      result.page = await pageStatusFromTab(tab.id);
+    } catch (restoreError) {
+      result.page = { error: restoreError instanceof Error ? restoreError.message : String(restoreError) };
+    }
   }
   return result;
+}
+
+async function pageStatusFromTab(tabId: number): Promise<unknown> {
+  const response = await sendToTab(tabId, {
+    type: "alibaba-mcp-request",
+    method: "get_page_status",
+    params: {},
+  }, 4_000);
+  if (!response?.ok) throw new Error(typeof response?.error === "string" ? response.error : "The Alibaba tab did not respond.");
+  return pageDiagnostics(response.result);
+}
+
+async function keepMessengerTabsLoaded(): Promise<void> {
+  const tabs = await chrome.tabs.query({ url: "https://message.alibaba.com/*" });
+  for (const tab of tabs) {
+    if (tab.id == null) continue;
+    if (tab.autoDiscardable !== false) {
+      await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => undefined);
+    }
+    if (messengerTabUnloaded(tab)) await restoreMessengerTab(tab.id);
+  }
+}
+
+function restoreMessengerTab(tabId: number): Promise<void> {
+  if (!restorePromise) {
+    restorePromise = reloadMessengerTab(tabId).finally(() => {
+      restorePromise = null;
+    });
+  }
+  return restorePromise;
+}
+
+async function reloadMessengerTab(tabId: number): Promise<void> {
+  await chrome.tabs.reload(tabId);
+  const started = Date.now();
+  let leftDocument = false;
+  while (Date.now() - started < 12_000) {
+    let tab: chrome.tabs.Tab;
+    try {
+      tab = await chrome.tabs.get(tabId);
+    } catch {
+      throw new Error("Open https://message.alibaba.com/ in a logged-in Chrome tab.");
+    }
+    if (tab.status !== "complete" || messengerTabUnloaded(tab)) leftDocument = true;
+    if (leftDocument && tab.status === "complete" && !messengerTabUnloaded(tab)) {
+      try {
+        await sendToTab(tabId, { type: "alibaba-mcp-request", method: "get_page_status", params: {} }, 2_000);
+        return;
+      } catch (error) {
+        if (!messengerScriptMissing(error) && !(error instanceof Error && error.message === "The Alibaba tab did not respond.")) {
+          throw error;
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  throw new Error("The Alibaba messages tab was unloaded in the background and is still reloading.");
 }
 
 function pageDiagnostics(value: unknown): unknown {
@@ -502,5 +581,9 @@ async function browserAuthProof(token: string, challenge: string): Promise<strin
 
 async function getAlibabaTab(): Promise<chrome.tabs.Tab | undefined> {
   const tabs = await chrome.tabs.query({ url: "https://message.alibaba.com/*" });
-  return tabs.find((tab) => tab.active) ?? tabs[0];
+  const tab = tabs.find((item) => item.active) ?? tabs[0];
+  if (tab?.id != null && tab.autoDiscardable !== false) {
+    await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => undefined);
+  }
+  return tab;
 }
