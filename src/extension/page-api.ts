@@ -1,5 +1,6 @@
 import {
   createMessenger,
+  messengerSendCall,
   messengerSendPayload,
   MessengerUnavailable,
   type MessengerDeps,
@@ -22,7 +23,7 @@ interface PageWindow extends Window {
 }
 
 interface SendService {
-  sendUIMessages?: (payload: MessengerSendPayload) => unknown;
+  messageServiceHttp?: { sendUIMessages?: (payload: MessengerSendPayload) => unknown };
 }
 
 interface SdkDefault {
@@ -80,14 +81,13 @@ function pageDeps(): MessengerDeps {
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     conversationRecords: () => page.__conversationListFullData__,
-    canSend: () => typeof messageService()?.sendUIMessages === "function",
+    canSend: () => messengerSendCall(messageService() ?? {}) !== null,
     sendText: (cid, content) => {
-      const service = messageService();
-      const send = service?.sendUIMessages;
-      if (!service || typeof send !== "function") {
+      const send = messengerSendCall(messageService() ?? {});
+      if (!send) {
         throw new MessengerUnavailable("Alibaba's message service is not loaded in this tab. Reload the messenger page and try again.");
       }
-      return send.call(service, messengerSendPayload(cid, content, page.__conversationListFullData__));
+      return send(messengerSendPayload(cid, content, page.__conversationListFullData__));
     },
   };
 }

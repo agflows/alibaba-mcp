@@ -434,6 +434,13 @@ export interface MessengerSendPayload {
   ext: { chatScene: string };
 }
 
+export function messengerSendCall(service: {
+  messageServiceHttp?: { sendUIMessages?: (payload: MessengerSendPayload) => unknown };
+}): ((payload: MessengerSendPayload) => unknown) | null {
+  const send = service.messageServiceHttp?.sendUIMessages;
+  return typeof send === "function" ? send.bind(service.messageServiceHttp) : null;
+}
+
 export function messengerSendPayload(conversationId: string, content: string, records: unknown): MessengerSendPayload {
   const id = canonicalConversationId(conversationId);
   const match = readRecords(records).find((record) => canonicalOrEmpty(record.cid) === id);

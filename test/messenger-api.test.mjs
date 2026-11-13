@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createMessenger, messengerSendPayload, MESSENGER_CSRF_URL, MESSENGER_HISTORY_URL } from "../.test-build/messenger-api.mjs";
+import { createMessenger, messengerSendCall, messengerSendPayload, MESSENGER_CSRF_URL, MESSENGER_HISTORY_URL } from "../.test-build/messenger-api.mjs";
 
 const CID = "2500001486209-5500029568478#11011@icbu";
 const TOKEN = "csrf-token-value-1234567890";
@@ -219,6 +219,21 @@ test("does not send when the message service or history check is unavailable", a
   await assert.rejects(() => blind.messenger.sendMessage(CID, "Hello"), /HTTP 503/);
   assert.equal(blind.sent.length, 0);
   await assert.rejects(() => blind.messenger.getConversation("not a conversation", 5), /not in Alibaba/);
+});
+
+test("sends through the HTTP service so the open chat does not paint a local bubble", () => {
+  const httpPayloads = [];
+  const routerPayloads = [];
+  const httpSend = (payload) => httpPayloads.push(payload);
+  const send = messengerSendCall({
+    messageServiceHttp: { sendUIMessages: httpSend },
+    sendUIMessages: (payload) => routerPayloads.push(payload),
+  });
+  send({ cid: CID, content: "Hello there", msgType: 1, ext: { chatScene: "{}" } });
+  assert.equal(httpPayloads.length, 1);
+  assert.equal(routerPayloads.length, 0);
+  assert.equal(messengerSendCall({}), null);
+  assert.equal(messengerSendCall({ sendUIMessages() {} }), null);
 });
 
 test("builds the web client's conversation-scoped send payload", () => {
