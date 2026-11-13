@@ -181,6 +181,11 @@ export class ExtensionBridge {
     return redactSensitive(message.split(this.token).join("[redacted]"));
   }
 
+  private timeoutFor(method: BridgeMethod): number {
+    if (method === "get_conversation" || method === "send_message") return Math.max(this.requestTimeoutMs, 45_000);
+    return this.requestTimeoutMs;
+  }
+
   async call(method: BridgeMethod, params: Record<string, unknown> = {}): Promise<unknown> {
     if (method === "download_attachment") throw new Error("Attachment downloads use the streaming path.");
     if (!isBridgeMethod(method)) throw new Error("Unsupported Alibaba operation.");
@@ -204,7 +209,7 @@ export class ExtensionBridge {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Timed out waiting for the Alibaba tab while running ${method}.`));
-      }, this.requestTimeoutMs);
+      }, this.timeoutFor(method));
       this.pending.set(id, { resolve, reject, timer });
       try {
         socket.send(JSON.stringify(request), (error) => {

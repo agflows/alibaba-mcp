@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "alibaba-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Give a local AI agent controlled access to your Alibaba conversations.",
   "minimum_chrome_version": "116",
   "incognito": "not_allowed",
@@ -36,6 +36,12 @@
     }
   },
   "content_scripts": [
+    {
+      "matches": ["https://message.alibaba.com/*"],
+      "js": ["page-api.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
     {
       "matches": ["https://message.alibaba.com/*"],
       "js": ["content.js"],

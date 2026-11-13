@@ -237,6 +237,10 @@ function connect(): void {
     clearTimeout(connectWatchdog);
     if (isValidPairingToken(proxyToken)) {
       ws.send(JSON.stringify({ type: "proxy-hello", role: "extension", token: proxyToken }));
+      bridgeConnected = true;
+      reconnectDelay = RECONNECT_MIN_MS;
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(() => sendPing(generation, ws), HEARTBEAT_MS);
     }
   });
 
@@ -410,13 +414,26 @@ async function runDownload(request: BridgeCommand, generation: number, ws: WebSo
 async function askTab(method: string, params: Record<string, unknown>): Promise<unknown> {
   const tab = await getAlibabaTab();
   if (!tab?.id) throw new Error("Open https://message.alibaba.com/ in a logged-in Chrome tab.");
-  const result = await chrome.tabs.sendMessage(tab.id, {
-    type: "alibaba-mcp-request",
-    method,
-    params,
-  });
+  const timeoutMs = method === "get_conversation" || method === "send_message" ? 35_000 : 12_000;
+  const result = await sendToTab(tab.id, { type: "alibaba-mcp-request", method, params }, timeoutMs);
   if (!result?.ok) throw new Error(typeof result?.error === "string" ? result.error : "Alibaba page request failed.");
   return result.result;
+}
+
+function sendToTab(tabId: number, message: Record<string, unknown>, timeoutMs: number): Promise<{ ok?: boolean; error?: unknown; result?: unknown } | undefined> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("The Alibaba tab did not respond.")), timeoutMs);
+    chrome.tabs.sendMessage(tabId, message).then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result as { ok?: boolean; error?: unknown; result?: unknown } | undefined);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error("The Alibaba tab did not respond."));
+      },
+    );
+  });
 }
 
 function clampLimit(value: unknown): number {
@@ -447,11 +464,11 @@ async function statusResult(): Promise<Record<string, unknown>> {
   if (!canRead(accessMode) || !tab?.id) return result;
   if (tab.url) result.tabUrl = safePageUrl(tab.url);
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, {
+    const response = await sendToTab(tab.id, {
       type: "alibaba-mcp-request",
       method: "get_page_status",
       params: {},
-    });
+    }, 4_000);
     result.page = response?.ok ? pageDiagnostics(response.result) : { error: response?.error };
   } catch (error) {
     result.page = { error: error instanceof Error ? error.message : String(error) };

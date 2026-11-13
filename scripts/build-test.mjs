@@ -19,6 +19,7 @@ await build({
 await build({
   entryPoints: {
     app: resolve(root, "src/server/app.ts"),
+    "messenger-api": resolve(root, "src/extension/messenger-api.ts"),
     protocol: resolve(root, "src/shared/protocol.ts"),
     reconnect: resolve(root, "src/extension/reconnect.ts"),
     attachments: resolve(root, "src/shared/attachments.ts"),

@@ -6,7 +6,12 @@ import { resolveCacheDir, AttachmentCache } from "./cache.js";
 import { ExtensionBridge } from "./bridge.js";
 import { downloadToCache } from "./transfer.js";
 
-export function createAlibabaMcpServer(bridge: ExtensionBridge, options: { cacheDir?: string } = {}): McpServer {
+export interface AlibabaCaller {
+  call(method: BridgeMethod, params?: Record<string, unknown>): Promise<unknown>;
+  sanitize(message: string): string;
+}
+
+export function createAlibabaMcpServer(bridge: AlibabaCaller, options: { cacheDir?: string } = {}): McpServer {
   const directory = resolveCacheDir(options.cacheDir);
   let opening: Promise<AttachmentCache> | undefined;
   const openCache = async () => {
@@ -46,7 +51,8 @@ export function createAlibabaMcpServer(bridge: ExtensionBridge, options: { cache
     "alibaba_list_conversations",
     {
       title: "List Alibaba conversations",
-      description: "List visible Alibaba conversations from the open Chrome tab. Requires read or read/write access in the extension.",
+      description:
+        "List Alibaba conversations from the open messenger tab, including chats that are not on screen. Requires read or read/write access. This does not switch the open chat.",
       inputSchema: {
         limit: z.number().int().min(1).max(100).default(30),
         search: z.string().max(200).optional(),
@@ -61,7 +67,7 @@ export function createAlibabaMcpServer(bridge: ExtensionBridge, options: { cache
     {
       title: "Read Alibaba conversation",
       description:
-        "Read messages from one conversation in the open Chrome tab. Requires read or read/write access. Use an id from alibaba_list_conversations.",
+        "Read one conversation by id, including messages that are not on screen. Messages come back oldest first. This does not switch the open chat. Requires read or read/write access. Use an id from alibaba_list_conversations.",
       inputSchema: {
         conversationId: z.string().min(1).max(500),
         limit: z.number().int().min(1).max(500).default(100),
@@ -76,7 +82,7 @@ export function createAlibabaMcpServer(bridge: ExtensionBridge, options: { cache
     "alibaba_send_message",
     {
       title: "Send Alibaba message",
-      description: `${SEND_APPROVAL_INSTRUCTION} Requires read/write access in the extension. This sends a real Alibaba message.`,
+      description: `${SEND_APPROVAL_INSTRUCTION} Sends by conversation id through the messenger page and does not switch the open chat. Requires read/write access. This sends a real Alibaba message.`,
       inputSchema: {
         conversationId: z.string().min(1).max(500),
         text: z.string().min(1).max(10_000),
@@ -111,6 +117,7 @@ export function createAlibabaMcpServer(bridge: ExtensionBridge, options: { cache
       }),
   );
 
+  if (bridge instanceof ExtensionBridge) {
   server.registerTool(
     "alibaba_download_attachment",
     {
@@ -166,6 +173,7 @@ export function createAlibabaMcpServer(bridge: ExtensionBridge, options: { cache
       }
     },
   );
+  }
 
   server.registerPrompt(
     "approve-alibaba-send",
@@ -199,7 +207,7 @@ export function createAlibabaMcpServer(bridge: ExtensionBridge, options: { cache
   return server;
 }
 
-async function attempt(bridge: ExtensionBridge, operation: () => Promise<unknown>) {
+async function attempt(bridge: AlibabaCaller, operation: () => Promise<unknown>) {
   try {
     const body = JSON.stringify(await operation(), null, 2) ?? "null";
     return { content: [{ type: "text" as const, text: bridge.sanitize(body) }] };

@@ -99,10 +99,10 @@ async function refresh(): Promise<void> {
         ? "Companion already paired"
         : "Waiting for companion";
     companionCopy.textContent = connected
-      ? "Secure pairing is active. Copy the instructions if the agent is not registered yet."
+      ? "This browser is linked. Copy the instructions into Claude, ChatGPT, or Cursor."
       : unavailable
         ? "Reset the companion pairing state, then restart the agent."
-        : "Install the companion once, then copy the instructions into the agent.";
+        : "Copy the instructions into Claude, ChatGPT, or Cursor. Keep the messenger tab open.";
     installButton.hidden = connected || unavailable;
   } catch {
     statusText.textContent = "Extension unavailable";

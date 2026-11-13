@@ -1,6 +1,6 @@
 # alibaba-mcp
 
-Local Chrome extension and MCP server for your Alibaba messages. The extension and the companion both connect out to `wss://alibaba-mcp-proxy.leogruetzner.com/relay`. The relay matches the two sides that present the same routing secret and does not store messages. Your agent talks to the companion over stdio. This project does not read Alibaba cookies.
+Chrome extension and remote MCP server for your Alibaba messages. The extension connects out to `wss://alibaba-mcp-proxy.leogruetzner.com/relay`. Claude, ChatGPT, and other MCP clients use `https://alibaba-mcp-proxy.leogruetzner.com/mcp`. The connector secret routes a client to your browser. The server does not store messages or the secret. This project does not read Alibaba cookies.
 
 Access is one of **None**, **Read**, or **Read & write**. Read & write is the default. Agents are instructed to ask you before they send a message. Set the extension to Read or None when you want sending to be impossible.
 
@@ -9,13 +9,21 @@ Access is one of **None**, **Read**, or **Read & write**. Read & write is the de
 The extension is published as a `.crx` on GitHub, the same way [Chromium Web Store](https://github.com/NeverDecaf/chromium-web-store) is installed on ungoogled-chromium.
 
 1. On ungoogled-chromium, open `chrome://flags/#extension-mime-request-handling` and set it to **Always prompt for install**.
-2. Open [alibaba-mcp.crx](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.1/alibaba-mcp.crx) and confirm the install prompt.
+2. Open [alibaba-mcp.crx](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.2/alibaba-mcp.crx) and confirm the install prompt.
 
-If that download is blocked, open `chrome://extensions`, turn on Developer mode, and drag the downloaded `.crx` onto the page. If drag-and-drop is blocked too, download [alibaba-mcp.zip](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.1/alibaba-mcp.zip), unzip it, and choose **Load unpacked**.
+If that download is blocked, open `chrome://extensions`, turn on Developer mode, and drag the downloaded `.crx` onto the page. If drag-and-drop is blocked too, download [alibaba-mcp.zip](https://github.com/agflows/alibaba-mcp/releases/download/v0.1.2/alibaba-mcp.zip), unzip it, and choose **Load unpacked**.
 
 Installed copies look for updates in [`updates.xml`](updates.xml). Chromium Web Store can install those updates when that extension is installed.
 
-After the extension is installed, install the companion:
+After the extension is installed, sign in to Alibaba and keep `https://message.alibaba.com/` open. Open the extension and choose **Copy instructions**. That text contains this browser's connector secret. Keep it private.
+
+Add this server URL in Claude or ChatGPT:
+
+`https://alibaba-mcp-proxy.leogruetzner.com/mcp`
+
+On claude.ai or ChatGPT, choose OAuth and paste the connector secret on the sign-in page. The secret is not put in the address bar. Claude Code, Claude Desktop, and Cursor can use the copied JSON block instead. It is a normal Streamable HTTP MCP server with an `Authorization: Bearer` header.
+
+A local companion is only needed when an agent on that computer should save an attachment file. It is not required for listing, reading, or sending.
 
 ```bash
 git clone https://github.com/agflows/alibaba-mcp.git
@@ -24,15 +32,13 @@ npm ci
 node dist/installer/index.js install
 ```
 
-Open the extension and choose **Copy instructions**. The copied text includes a JSON block with this browser's relay secret. Put that block in Cursor's MCP configuration, or give the whole text to the agent so it can do that. Keep the secret private. Restart Cursor, sign in to Alibaba, and keep `https://message.alibaba.com/` open. HMAC pairing inside the relay is still automatic.
-
-`status` and `uninstall` are also supported. Configuration writes are atomic and existing Cursor configuration is backed up. `npm ci` builds the companion through the `prepare` script.
+`status` and `uninstall` are also supported. Configuration writes are atomic and existing Cursor configuration is backed up. `npm ci` builds the companion through the `prepare` script. The companion still uses the connector secret as `ALIBABA_MCP_PROXY_TOKEN` and proves itself to the browser with HMAC.
 
 ### Developer installation
 
 For local development, load `dist/extension` unpacked and run `node dist/installer/index.js install`. The extension id pinned by `keys/extension.pem` is accepted automatically. That private key is not in git. Without it, a new package gets a different id and will not update an existing install. `npm run package:extension` writes `dist/alibaba-mcp.crx` and `dist/alibaba-mcp.zip`.
 
-The popup shows **Securely connected** after the agent launches the companion MCP process. Pairing uses a fresh HMAC challenge; the secret is not placed in the WebSocket URL, popup, MCP configuration, logs, or tool output. A new companion state can be claimed once. If this browser loses that claim, the popup says **Companion already paired**. Quit the agent, delete the private state directory (`~/.config/alibaba-mcp`, or `$XDG_CONFIG_HOME/alibaba-mcp`), and start the agent again. The extension then pairs on its own.
+The popup shows **Securely connected** while the extension is linked to the relay. The connector secret is not placed in the WebSocket URL, popup, logs, or tool output. A local companion still uses a fresh HMAC challenge. A new companion state can be claimed once. If this browser loses that claim, the popup says **Companion already paired**. Quit the agent, delete the private state directory (`~/.config/alibaba-mcp`, or `$XDG_CONFIG_HOME/alibaba-mcp`), and start the agent again. The extension then pairs on its own. Remote MCP clients do not use that pairing state.
 
 ## Access and sending
 
@@ -67,4 +73,4 @@ npm run package:extension
 
 ## What stays on this machine
 
-The browser keeps the Alibaba session. The extension reads the open messages tab. Message frames cross the private relay, which forwards them without storing them, and then reach the agent over stdio. The companion still requires a fresh HMAC proof before accepting commands. Details and remaining risks are in [SECURITY.md](SECURITY.md).
+The browser keeps the Alibaba session. The extension reads the open messages tab. A remote MCP client sends a tool call to the HTTPS server, which delivers that call to the connected browser and returns the result. Message text is not stored. A local companion can still save attachment files on that computer, and it still requires a fresh HMAC proof before it accepts the browser. Details and remaining risks are in [SECURITY.md](SECURITY.md).

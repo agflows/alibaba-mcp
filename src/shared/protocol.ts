@@ -3,6 +3,7 @@ export const BRIDGE_PORT = 17873;
 export const BRIDGE_URL = `ws://${BRIDGE_HOST}:${BRIDGE_PORT}`;
 export const PROXY_ORIGIN = "alibaba-mcp-proxy.leogruetzner.com";
 export const PROXY_URL = `wss://${PROXY_ORIGIN}/relay`;
+export const MCP_URL = `https://${PROXY_ORIGIN}/mcp`;
 export const DEFAULT_ACCESS: AccessMode = "write";
 export const PAIRING_TOKEN_BYTES = 32;
 export const DEVELOPMENT_EXTENSION_ID = "ecklkjobkachpelpldagkdidgnjgpibf";
@@ -11,13 +12,14 @@ export const SEND_APPROVAL_INSTRUCTION =
   "Get the user's explicit approval before sending. Show the exact conversation and the exact message text, wait for a clear yes, and only then call alibaba_send_message. Do not send, rewrite-and-send, or retry a send without a new approval.";
 
 export const AGENT_INSTRUCTIONS = [
-  "alibaba-mcp is a fully local bridge between this agent and the user's Chrome tab at https://message.alibaba.com/.",
+  "alibaba-mcp connects this agent to the user's Chrome tab at https://message.alibaba.com/.",
   "The Alibaba session stays in Chrome. Do not ask for cookies, passwords, or session tokens.",
   "Call alibaba_status first.",
   "Access is exactly one of none, read, or read/write. The extension enforces it. The default is read/write.",
+  "Read and send by conversation id through the open messenger page. The open chat does not have to change.",
   SEND_APPROVAL_INSTRUCTION,
   "If the extension is disconnected, ask the user to open alibaba-mcp and keep the Alibaba tab open.",
-  "Attachment files are saved in a private local cache. Never ask for, display, or store Alibaba download URLs or signed links. Use alibaba_list_attachments and alibaba_download_attachment. A download result is a local file path.",
+  "Use alibaba_list_attachments for file names and sizes. Never ask for, display, or store Alibaba download URLs or signed links. Saving a file onto a computer needs the local companion.",
 ].join("\n");
 
 export type AccessMode = "none" | "read" | "write";
@@ -204,27 +206,37 @@ export function isExtensionUiSender(sender: { id?: string; url?: string }, exten
   }
 }
 
-export function formatAgentSetup(input: { serverPath?: string; proxyToken?: string } = {}): string {
-  const serverPath = input.serverPath ?? "<installed-alibaba-mcp>/dist/server/index.js";
-  const alibaba: { command: string; args: string[]; env?: { ALIBABA_MCP_PROXY_TOKEN: string } } = {
-    command: "node",
-    args: [serverPath],
-  };
-  if (input.proxyToken !== undefined) {
-    if (!isValidPairingToken(input.proxyToken)) throw new Error("Relay secret is invalid.");
-    alibaba.env = { ALIBABA_MCP_PROXY_TOKEN: input.proxyToken };
+export function formatAgentSetup(input: { proxyToken?: string } = {}): string {
+  if (input.proxyToken === undefined) {
+    return [
+      "Copy the instructions from the extension popup. That text includes this browser's connector secret.",
+      "",
+      "Keep a logged-in https://message.alibaba.com/ tab open in Chrome.",
+      "Use alibaba_status first.",
+      "Attachment files stay in the browser until a local companion downloads them. Do not ask for or display Alibaba download URLs.",
+      SEND_APPROVAL_INSTRUCTION,
+    ].join("\n");
   }
-  const config = { mcpServers: { alibaba } };
+  if (!isValidPairingToken(input.proxyToken)) throw new Error("Relay secret is invalid.");
+  const config = {
+    mcpServers: {
+      alibaba: {
+        type: "http",
+        url: MCP_URL,
+        headers: { Authorization: `Bearer ${input.proxyToken}` },
+      },
+    },
+  };
   return [
-    input.proxyToken
-      ? `This secret routes the companion to this browser through ${PROXY_URL}. Keep it private.`
-      : "This configuration contains no relay secret. Copy the instructions from the extension to add one.",
+    `Add this MCP server in Claude or ChatGPT: ${MCP_URL}`,
+    "Claude Code, Claude Desktop, and Cursor can use the configuration below. The header is the connector secret. Keep it private.",
+    "On claude.ai or ChatGPT, add that server URL and choose OAuth. When the sign-in page opens, paste the same secret.",
     "",
     JSON.stringify(config, null, 2),
     "",
     "Keep a logged-in https://message.alibaba.com/ tab open in Chrome.",
     "Use alibaba_status first.",
-    "Attachment downloads are local files. Do not ask for or display Alibaba download URLs.",
+    "Attachment files stay in the browser until a local companion downloads them. Do not ask for or display Alibaba download URLs.",
     SEND_APPROVAL_INSTRUCTION,
   ].join("\n");
 }

@@ -1,4 +1,5 @@
-import { AlibabaAdapter, isExtensionBackgroundSender } from "./alibaba-adapter.js";
+import { AlibabaAdapter, isExtensionBackgroundSender, type AdapterHealth } from "./alibaba-adapter.js";
+import { callMessengerPage } from "./page-client.js";
 
 const adapter = new AlibabaAdapter();
 
@@ -24,11 +25,14 @@ async function handle(
 ): Promise<unknown> {
   switch (method) {
     case "get_page_status":
-      return adapter.health();
+      return pageStatus();
     case "list_conversations":
-      return adapter.listConversations(optionalLimit(params.limit, 30), optionalSearch(params.search));
+      return listConversations(optionalLimit(params.limit, 30), optionalSearch(params.search));
     case "get_conversation":
-      return adapter.getConversation(requiredId(params.conversationId), optionalLimit(params.limit, 100));
+      return callMessengerPage("get_conversation", {
+        conversationId: requiredId(params.conversationId),
+        limit: optionalLimit(params.limit, 100),
+      }, 30_000);
     case "list_attachments":
       return adapter.listAttachments(requiredId(params.conversationId));
     case "prepare_attachment":
@@ -37,9 +41,48 @@ async function handle(
       }
       return adapter.prepareAttachment(requiredId(params.conversationId), requiredAttachmentId(params.attachmentId));
     case "send_message":
-      return adapter.sendMessage(requiredId(params.conversationId), requiredText(params.text));
+      return callMessengerPage("send_message", {
+        conversationId: requiredId(params.conversationId),
+        text: requiredText(params.text),
+      }, 30_000);
     default:
       throw new Error(`Unsupported Alibaba operation: ${method || "unknown"}`);
+  }
+}
+
+async function pageStatus(): Promise<AdapterHealth> {
+  const health = adapter.health();
+  try {
+    const page = await callMessengerPage<{ conversationCount?: unknown; messageServiceReady?: unknown }>("messenger_status", {}, 2_000);
+    const count = typeof page?.conversationCount === "number" && Number.isFinite(page.conversationCount) ? page.conversationCount : 0;
+    if (count > health.conversationCount) {
+      health.conversationCount = count;
+      health.inboxLoaded = true;
+    }
+    if (page?.messageServiceReady === true) {
+      health.warnings = health.warnings.filter((warning) => !/composer|Send control/i.test(warning));
+      health.sendButtonAvailable = true;
+      health.sendButtonEnabled = true;
+      health.profileNames = { ...health.profileNames, messages: "messenger-api", sendButton: "message-service" };
+    } else {
+      health.warnings.push("Alibaba's message service is not loaded yet. Reload the messenger tab before sending.");
+    }
+  } catch (error) {
+    health.warnings.push(error instanceof Error ? error.message : "The messenger page bridge did not answer.");
+  }
+  return health;
+}
+
+async function listConversations(limit: number, search: string) {
+  try {
+    const listed = await callMessengerPage<unknown>("list_conversations", { limit, search }, 8_000);
+    if (listed == null) return adapter.listConversations(limit, search);
+    if (!Array.isArray(listed)) throw new Error("Alibaba returned an unreadable conversation list.");
+    return listed;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/did not respond|not loaded/i.test(message)) return adapter.listConversations(limit, search);
+    throw error;
   }
 }
 

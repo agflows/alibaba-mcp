@@ -73,6 +73,15 @@ const jobs = [
     sourcemap: true,
   },
   {
+    entryPoints: [resolve(root, "src/extension/page-api.ts")],
+    outfile: resolve(out, "extension/page-api.js"),
+    bundle: true,
+    platform: "browser",
+    target: "chrome116",
+    format: "iife",
+    sourcemap: true,
+  },
+  {
     entryPoints: [resolve(root, "src/extension/popup.ts")],
     outfile: resolve(out, "extension/popup.js"),
     bundle: true,
@@ -153,6 +162,19 @@ function assertManifest(manifest) {
   }
   if (manifest.background?.service_worker !== "background.js" || manifest.background?.type !== "module") {
     throw new Error("Background must be an MV3 module service worker.");
+  }
+  const scripts = manifest.content_scripts ?? [];
+  const mainWorld = scripts.find((script) => script.world === "MAIN");
+  const isolated = scripts.find((script) => script.js?.includes("content.js"));
+  if (
+    scripts.length !== 2 ||
+    mainWorld?.js?.join(",") !== "page-api.js" ||
+    mainWorld.run_at !== "document_start" ||
+    mainWorld.all_frames === true ||
+    isolated?.js?.join(",") !== "content.js" ||
+    isolated.world
+  ) {
+    throw new Error("The messenger page script must run in the top-frame page world, and the content script must stay isolated.");
   }
   if (manifest.update_url !== "https://raw.githubusercontent.com/agflows/alibaba-mcp/main/updates.xml") {
     throw new Error("Extension update_url must point at the GitHub updates manifest.");

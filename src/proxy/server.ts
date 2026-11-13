@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import path from "node:path";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+import { createRemoteMcp } from "./remote-mcp.js";
 
 const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 const MAX_HELLO_BYTES = 1024;
@@ -22,10 +23,17 @@ type Peer = {
   buffered: number;
 };
 
+type PendingCall = {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+};
+
 type Room = {
   extension?: Peer;
   agent?: Peer;
   loneTimer?: NodeJS.Timeout;
+  pending: Map<string, PendingCall>;
 };
 
 export type ProxyHandle = {
@@ -33,19 +41,36 @@ export type ProxyHandle = {
   close: () => Promise<void>;
 };
 
-export function startProxy(options: { host?: string; port?: number } = {}): Promise<ProxyHandle> {
+export function startProxy(options: { host?: string; port?: number; publicOrigin?: string } = {}): Promise<ProxyHandle> {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 0;
   const rooms = new Map<string, Room>();
+  let boundPort = 0;
+  const remote = createRemoteMcp({
+    origin: () => options.publicOrigin ?? `http://127.0.0.1:${boundPort}`,
+    roomKeyForSecret: (secret) => {
+      const key = createHash("sha256").update(secret).digest("hex");
+      return rooms.has(key) ? key : null;
+    },
+    extensionReady: (roomKey) => rooms.get(roomKey)?.extension?.socket.readyState === WebSocket.OPEN,
+    callExtension: (roomKey, method, params) => callExtension(rooms, roomKey, method, params),
+  });
   const httpServer = createServer((request, response) => {
     const path = request.url ?? "";
-    if (request.method === "GET" && path === "/health") {
+    if (request.method === "GET" && (path === "/health" || path.startsWith("/health?"))) {
       response.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
       response.end("ok\n");
       return;
     }
-    response.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
-    response.end("not found\n");
+    void remote.handle(request, response).then((handled) => {
+      if (handled || response.writableEnded) return;
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+      response.end("not found\n");
+    }).catch(() => {
+      if (response.headersSent || response.writableEnded) return;
+      response.writeHead(400, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+      response.end("bad request\n");
+    });
   });
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES, perMessageDeflate: false });
   const ping = setInterval(() => {
@@ -99,6 +124,7 @@ export function startProxy(options: { host?: string; port?: number } = {}): Prom
         reject(new Error("Proxy failed to bind."));
         return;
       }
+      boundPort = address.port;
       resolve({
         port: address.port,
         close: async () => {
@@ -144,8 +170,11 @@ function parseHello(data: RawData): { key: string; role: Role } | null {
 }
 
 function join(rooms: Map<string, Room>, key: string, role: Role, socket: WebSocket): void {
-  const room = rooms.get(key) ?? {};
-  rooms.set(key, room);
+  let room = rooms.get(key);
+  if (!room) {
+    room = { pending: new Map() };
+    rooms.set(key, room);
+  }
   const previous = room[role];
   if (previous && previous.socket !== socket) previous.socket.close(4000, "replaced");
   const peer: Peer = { role, socket, buffer: [], binary: [], buffered: 0 };
@@ -154,7 +183,12 @@ function join(rooms: Map<string, Room>, key: string, role: Role, socket: WebSock
   socket.on("message", (data, isBinary) => {
     const current = room[role];
     if (current?.socket !== socket) return;
-    const other = room[otherRole];
+    if (role === "extension" && !isBinary && takePending(room, data)) return;
+    if (role === "extension" && !isBinary && !room.agent && isPing(data)) {
+      socket.send(JSON.stringify({ type: "pong" }));
+      return;
+    }
+    const other = room[role === "extension" ? "agent" : "extension"];
     if (!other || other.socket.readyState !== WebSocket.OPEN) {
       const size = byteLength(data);
       if (peer.buffered + size > MAX_BUFFER_BYTES) {
@@ -171,6 +205,7 @@ function join(rooms: Map<string, Room>, key: string, role: Role, socket: WebSock
   socket.on("close", () => {
     if (room[role]?.socket !== socket) return;
     delete room[role];
+    if (role === "extension") rejectPending(room, new Error("The Alibaba browser disconnected."));
     const other = room[otherRole];
     if (other) {
       delete room[otherRole];
@@ -182,7 +217,8 @@ function join(rooms: Map<string, Room>, key: string, role: Role, socket: WebSock
   socket.on("error", () => socket.close());
   flush(room[otherRole], socket);
   if (room.extension && room.agent) clearTimeout(room.loneTimer);
-  else armLoneTimer(rooms, key, room);
+  else if (room.agent) armLoneTimer(rooms, key, room);
+  else clearTimeout(room.loneTimer);
 }
 
 function flush(from: Peer | undefined, to: WebSocket): void {
@@ -210,8 +246,83 @@ function armLoneTimer(rooms: Map<string, Room>, key: string, room: Room): void {
 
 function closeRoom(room: Room): void {
   clearTimeout(room.loneTimer);
+  rejectPending(room, new Error("The Alibaba browser disconnected."));
   room.extension?.socket.close(1001, "relay closed");
   room.agent?.socket.close(1001, "relay closed");
+}
+
+function callExtension(
+  rooms: Map<string, Room>,
+  roomKey: string,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const room = rooms.get(roomKey);
+  const socket = room?.extension?.socket;
+  if (!room || !socket || socket.readyState !== WebSocket.OPEN) {
+    return Promise.reject(new Error("The Alibaba browser is not connected. Open the messenger tab."));
+  }
+  const id = `mcp_${randomUUID()}`;
+  const timeout = method === "get_conversation" || method === "send_message" ? 45_000 : 20_000;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      room.pending.delete(id);
+      reject(new Error(`Timed out waiting for the Alibaba tab while running ${method}.`));
+    }, timeout);
+    timer.unref?.();
+    room.pending.set(id, { resolve, reject, timer });
+    socket.send(JSON.stringify({ id, method, params }), (error) => {
+      if (!error) return;
+      clearTimeout(timer);
+      room.pending.delete(id);
+      reject(new Error("The Alibaba browser connection failed."));
+    });
+  });
+}
+
+function takePending(room: Room, data: RawData): boolean {
+  let record: Record<string, unknown>;
+  try {
+    record = JSON.parse(rawToString(data)) as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  const id = typeof record.id === "string" ? record.id : "";
+  const pending = id.startsWith("mcp_") ? room.pending.get(id) : undefined;
+  if (!pending) return false;
+  clearTimeout(pending.timer);
+  room.pending.delete(id);
+  if (record.ok === true) pending.resolve(record.result);
+  else pending.reject(new Error(typeof record.error === "string" ? record.error.slice(0, 300) : "Alibaba request failed."));
+  return true;
+}
+
+function rejectPending(room: Room, error: Error): void {
+  for (const pending of room.pending.values()) {
+    clearTimeout(pending.timer);
+    pending.reject(error);
+  }
+  room.pending.clear();
+}
+
+function isPing(data: RawData): boolean {
+  try {
+    const record = JSON.parse(rawToString(data)) as { type?: unknown };
+    return record.type === "ping";
+  } catch {
+    return false;
+  }
+}
+
+function configuredOrigin(value: string): string {
+  const url = new URL(value);
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
+    throw new Error("PUBLIC_ORIGIN must be an origin.");
+  }
+  if (url.protocol !== "https:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
+    throw new Error("PUBLIC_ORIGIN must use https.");
+  }
+  return url.origin;
 }
 
 function byteLength(data: RawData): number {
@@ -235,7 +346,8 @@ if (invokedDirectly) {
     console.error("alibaba-mcp-proxy: PORT must be an integer from 1 to 65535.");
     process.exit(1);
   }
-  startProxy({ host, port })
+  const origin = configuredOrigin(process.env.PUBLIC_ORIGIN?.trim() || "https://alibaba-mcp-proxy.leogruetzner.com");
+  startProxy({ host, port, publicOrigin: origin })
     .then((proxy) => {
       console.error(`alibaba-mcp-proxy listening on ${host}:${proxy.port}`);
       const stop = () => {
