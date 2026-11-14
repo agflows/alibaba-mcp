@@ -14,7 +14,7 @@
           <h1>alibaba-mcp</h1>
           <div class="status">
             <span class="status-dot" data-status-dot data-connected="false"></span>
-            <span data-status-text>Waiting for companion</span>
+            <span data-status-text>Connecting to relay</span>
           </div>
         </div>
       </header>
@@ -22,12 +22,12 @@
       <section aria-labelledby="access-heading">
         <div class="section-copy">
           <h2 id="access-heading">Chat access</h2>
-          <p>Choose one level. The default is read and write.</p>
+          <p>Choose one level. The default is read-only.</p>
         </div>
         <div class="segmented" role="radiogroup" aria-label="Chat access">
           <button type="button" role="radio" data-access="none" aria-checked="false" tabindex="-1">None</button>
-          <button type="button" role="radio" data-access="read" aria-checked="false" tabindex="-1">Read</button>
-          <button type="button" role="radio" data-access="write" class="selected" aria-checked="true" tabindex="0">Read &amp; write</button>
+          <button type="button" role="radio" data-access="read" class="selected" aria-checked="true" tabindex="0">Read</button>
+          <button type="button" role="radio" data-access="write" aria-checked="false" tabindex="-1">Read &amp; write</button>
         </div>
         <p class="privacy">Enforced in the extension before a chat is read or a message is sent.</p>
         <button class="conversation-button" type="button" data-copy-conversation>
@@ -40,20 +40,21 @@
 
       <section aria-labelledby="setup-heading">
         <div class="section-copy">
-          <h2 id="setup-heading">Companion</h2>
-          <p data-companion-copy>Pairing is automatic. Copy the instructions into the agent.</p>
+          <h2 id="setup-heading">Connect an MCP client</h2>
+          <p data-companion-copy>Copy the instructions into Claude, ChatGPT, or Cursor.</p>
         </div>
         <a class="copy-button install-button" href="https://github.com/agflows/alibaba-mcp/releases" target="_blank" rel="noreferrer" data-install>
-          Install companion app
+          Install local attachment companion
         </a>
         <button class="copy-button setup-button" type="button" data-copy-setup>
           <span data-copy-setup-label>Copy instructions</span>
         </button>
-        <p class="privacy">The companion installer registers the MCP server with supported agents. Your Alibaba session stays in Chrome.</p>
+        <button class="text-button danger-button" type="button" data-disconnect-clients>Disconnect all clients</button>
+        <p class="privacy">Conversation data passes through the hosted relay while requests are active. Your Alibaba login stays in Chrome.</p>
       </section>
 
       <footer>
-        <span class="local-pill">Private relay</span>
+        <span class="local-pill">Hosted relay</span>
         <div class="footer-links">
           <span class="endpoint">alibaba-mcp-proxy.leogruetzner.com</span>
           <a href="https://github.com/agflows/alibaba-mcp" target="_blank" rel="noreferrer">Source</a>

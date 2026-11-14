@@ -10,6 +10,9 @@ const CODE_TTL_MS = 60_000;
 const ACCESS_TTL_MS = 60 * 60 * 1000;
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_RECORDS = 500;
+// A registration that never completes sign-in is forgotten quickly. One that has signed in
+// lives as long as its refresh token, so registration churn cannot evict an active client.
+const UNUSED_CLIENT_TTL_MS = 10 * 60 * 1000;
 
 type ClientRecord = { id: string; redirects: string[]; name: string; expires?: number };
 type CodeRecord = {
@@ -83,10 +86,10 @@ export function createRemoteMcp(deps: RemoteMcpDeps) {
       sendJson(response, 400, { error: "invalid_redirect_uri" });
       return;
     }
-    prune(clients);
+    pruneClients();
     const id = randomBytes(32).toString("base64url");
     const name = typeof body.client_name === "string" ? body.client_name.trim().slice(0, 80) : "MCP client";
-    clients.set(id, { id, redirects: allowed, name });
+    clients.set(id, { id, redirects: allowed, name, expires: Date.now() + UNUSED_CLIENT_TTL_MS });
     sendJson(response, 201, {
       client_id: id,
       client_id_issued_at: Math.floor(Date.now() / 1000),
@@ -101,7 +104,7 @@ export function createRemoteMcp(deps: RemoteMcpDeps) {
   async function authorize(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (request.method === "GET") {
       const params = requestUrl(request)?.searchParams;
-      if (!params || !validAuthorize(params)) {
+      if (!params || !validAuthorize(params, deps.origin())) {
         sendHtml(response, 400, page("This sign-in link is missing required OAuth fields.", ""));
         return;
       }
@@ -114,7 +117,7 @@ export function createRemoteMcp(deps: RemoteMcpDeps) {
       prune(forms);
       const nonce = randomBytes(32).toString("base64url");
       forms.set(nonce, { params, expires: Date.now() + 10 * 60 * 1000 });
-      sendHtml(response, 200, signInPage(nonce, params));
+      sendHtml(response, 200, signInPage(nonce, params, client));
       return;
     }
     const form = await readForm(request);
@@ -128,11 +131,19 @@ export function createRemoteMcp(deps: RemoteMcpDeps) {
     const secret = (form.get("secret") ?? "").trim();
     const roomKey = TOKEN_PATTERN.test(secret) ? deps.roomKeyForSecret(secret) : null;
     if (!roomKey || !deps.extensionReady(roomKey)) {
-      sendHtml(response, 401, signInPage(freshNonce(pending.params), pending.params, "Open the Alibaba messenger tab, then paste the connector secret again."));
+      const client = clients.get(pending.params.get("client_id") ?? "");
+      sendHtml(response, 401, signInPage(
+        freshNonce(pending.params),
+        pending.params,
+        client,
+        "Open the Alibaba messenger tab, then paste the connector secret again.",
+      ));
       return;
     }
     prune(codes);
     const code = randomBytes(32).toString("base64url");
+    const signedInClient = clients.get(pending.params.get("client_id") ?? "");
+    if (signedInClient) signedInClient.expires = Date.now() + REFRESH_TTL_MS;
     codes.set(code, {
       clientId: pending.params.get("client_id") ?? "",
       redirectUri: pending.params.get("redirect_uri") ?? "",
@@ -191,6 +202,8 @@ export function createRemoteMcp(deps: RemoteMcpDeps) {
   function issueTokens(roomKey: string, clientId: string) {
     prune(accessTokens);
     prune(refreshTokens);
+    const client = clients.get(clientId);
+    if (client) client.expires = Date.now() + REFRESH_TTL_MS;
     const access = randomBytes(32).toString("base64url");
     const refresh = randomBytes(32).toString("base64url");
     accessTokens.set(access, { roomKey, clientId, expires: Date.now() + ACCESS_TTL_MS });
@@ -200,6 +213,7 @@ export function createRemoteMcp(deps: RemoteMcpDeps) {
       token_type: "Bearer",
       expires_in: Math.floor(ACCESS_TTL_MS / 1000),
       refresh_token: refresh,
+      scope: "alibaba",
     };
   }
 
@@ -239,6 +253,22 @@ export function createRemoteMcp(deps: RemoteMcpDeps) {
     return nonce;
   }
 
+  function pruneClients(): void {
+    const now = Date.now();
+    for (const [key, record] of clients) {
+      if (record.expires !== undefined && record.expires <= now) clients.delete(key);
+    }
+    while (clients.size >= MAX_RECORDS) {
+      let soonest: { key: string; expires: number } | undefined;
+      for (const [key, record] of clients) {
+        const expires = record.expires ?? Number.MAX_SAFE_INTEGER;
+        if (!soonest || expires < soonest.expires) soonest = { key, expires };
+      }
+      if (!soonest) return;
+      clients.delete(soonest.key);
+    }
+  }
+
   return { handle };
 }
 
@@ -272,14 +302,18 @@ function isMetadataPath(pathname: string): boolean {
   );
 }
 
-function validAuthorize(params: URLSearchParams): boolean {
+function validAuthorize(params: URLSearchParams, origin: string): boolean {
+  const scope = params.get("scope")?.trim() ?? "";
+  const resource = params.get("resource")?.trim() ?? "";
   return (
     params.get("response_type") === "code" &&
     Boolean(params.get("client_id")) &&
     Boolean(params.get("redirect_uri")) &&
     params.get("code_challenge_method") === "S256" &&
     /^[A-Za-z0-9._~-]{43,128}$/.test(params.get("code_challenge") ?? "") &&
-    (params.get("state") ?? "").length <= 1024
+    (params.get("state") ?? "").length <= 1024 &&
+    (scope === "" || scope === "alibaba") &&
+    (resource === "" || resource === `${origin}/mcp`)
   );
 }
 
@@ -306,23 +340,21 @@ function pkce(verifier: string, challenge: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-function signInPage(nonce: string, params: URLSearchParams, error = ""): string {
-  const fields = ["client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "response_type"]
-    .map((name) => hidden(name, params.get(name) ?? ""))
-    .join("");
+function signInPage(nonce: string, params: URLSearchParams, client?: ClientRecord, error = ""): string {
   const notice = error ? `<p class="error">${escapeHtml(error)}</p>` : "";
+  const redirect = params.get("redirect_uri") ?? "";
+  const destination = (() => {
+    try { return new URL(redirect).origin; } catch { return "the requesting application"; }
+  })();
+  const clientName = client?.name || "MCP client";
   return page(
     "Connect Alibaba",
-    `${notice}<form method="post" action="/authorize"><input type="hidden" name="nonce" value="${escapeHtml(nonce)}">${fields}<label>Connector secret<input name="secret" type="password" autocomplete="off" required></label><button type="submit">Connect</button></form><p>Paste the secret from the alibaba-mcp extension. It stays in this request and is not put in the address bar.</p>`,
+    `${notice}<p><strong>${escapeHtml(clientName)}</strong> is asking to read your Alibaba conversations and request message sends. Every send still needs browser approval.</p><p>After sign-in, access returns to <code>${escapeHtml(destination)}</code>.</p><form method="post" action="/authorize"><input type="hidden" name="nonce" value="${escapeHtml(nonce)}"><label>Connector secret<input name="secret" type="password" autocomplete="off" required></label><button type="submit">Connect</button></form><p>Paste the secret from the alibaba-mcp extension. It is sent to the hosted relay in this request and is not put in the address bar.</p>`,
   );
 }
 
 function page(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>body{font:16px/1.4 system-ui,sans-serif;margin:2rem auto;max-width:32rem;padding:0 1rem}label,input,button{display:block;width:100%}input,button{font:inherit;margin:.5rem 0 1rem;padding:.6rem}.error{color:#9b1c1c}</style></head><body><h1>${escapeHtml(title)}</h1>${body}</body></html>`;
-}
-
-function hidden(name: string, value: string): string {
-  return `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`;
 }
 
 function escapeHtml(value: string): string {

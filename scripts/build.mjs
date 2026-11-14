@@ -90,9 +90,18 @@ const jobs = [
     format: "esm",
     sourcemap: true,
   },
+  {
+    entryPoints: [resolve(root, "src/extension/confirm.ts")],
+    outfile: resolve(out, "extension/confirm.js"),
+    bundle: true,
+    platform: "browser",
+    target: "chrome116",
+    format: "esm",
+    sourcemap: true,
+  },
 ];
 
-for (const name of ["manifest.json", "popup.html", "popup.css"]) {
+for (const name of ["manifest.json", "popup.html", "popup.css", "confirm.html", "confirm.css"]) {
   await cp(resolve(root, "src/extension", name), resolve(out, "extension", name));
 }
 await cp(resolve(root, "src/extension/icons"), resolve(out, "extension/icons"), { recursive: true });

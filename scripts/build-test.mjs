@@ -22,6 +22,7 @@ await build({
     "messenger-api": resolve(root, "src/extension/messenger-api.ts"),
     protocol: resolve(root, "src/shared/protocol.ts"),
     reconnect: resolve(root, "src/extension/reconnect.ts"),
+    "send-approval": resolve(root, "src/extension/send-approval.ts"),
     "tab-attach": resolve(root, "src/extension/tab-attach.ts"),
     attachments: resolve(root, "src/shared/attachments.ts"),
     download: resolve(root, "src/extension/download.ts"),

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Approve Alibaba message</title>
+    <link rel="stylesheet" href="confirm.css" />
+  </head>
+  <body>
+    <main>
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">a</div>
+        <div>
+          <p class="eyebrow">alibaba-mcp</p>
+          <h1>Approve this message?</h1>
+        </div>
+      </div>
+
+      <p class="warning">This sends a real Alibaba message. Check the conversation and exact text before approving.</p>
+
+      <section aria-labelledby="conversation-heading">
+        <h2 id="conversation-heading">Conversation</h2>
+        <p class="conversation-title" data-conversation-title>Loading…</p>
+        <p class="conversation-id" data-conversation-id></p>
+      </section>
+
+      <section aria-labelledby="message-heading">
+        <h2 id="message-heading">Exact message</h2>
+        <pre data-message-text>Loading…</pre>
+      </section>
+
+      <p class="timeout" data-timeout>This request closes automatically in 25 seconds.</p>
+      <p class="error" data-error hidden></p>
+
+      <div class="actions">
+        <button type="button" class="cancel" data-cancel>Cancel</button>
+        <button type="button" class="approve" data-approve disabled>Approve &amp; send</button>
+      </div>
+    </main>
+    <script type="module" src="confirm.js"></script>
+  </body>
+</html>

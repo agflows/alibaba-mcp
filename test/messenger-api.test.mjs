@@ -278,3 +278,12 @@ test("reports messenger readiness from the page globals", () => {
   assert.deepEqual(empty.messenger.status(), { conversationCount: 0, messageServiceReady: false });
   assert.throws(() => empty.messenger.listConversations(10, ""), /not loaded/);
 });
+
+test("resolves a conversation id to a recognizable title and fails closed when unknown", () => {
+  const { messenger } = messengerFor({ records });
+  assert.deepEqual(messenger.getConversationIdentity(CID), {
+    id: CID,
+    title: "Ryan — Changsha Qianshixian Technology Co., Ltd.",
+  });
+  assert.throws(() => messenger.getConversationIdentity("unknown-conversation"), /not in this Alibaba account/);
+});

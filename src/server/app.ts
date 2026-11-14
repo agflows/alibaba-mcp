@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { publicAttachmentList, readAttachmentId, safeAgentError } from "../shared/attachments.js";
-import { AGENT_INSTRUCTIONS, SEND_APPROVAL_INSTRUCTION, type BridgeMethod } from "../shared/protocol.js";
+import { AGENT_INSTRUCTIONS, PROJECT_VERSION, SEND_APPROVAL_INSTRUCTION, type BridgeMethod } from "../shared/protocol.js";
 import { resolveCacheDir, AttachmentCache } from "./cache.js";
 import { ExtensionBridge } from "./bridge.js";
 import { downloadToCache } from "./transfer.js";
@@ -24,7 +24,7 @@ export function createAlibabaMcpServer(bridge: AlibabaCaller, options: { cacheDi
     }
   };
   const server = new McpServer(
-    { name: "alibaba-mcp", version: "0.1.0" },
+    { name: "alibaba-mcp", version: PROJECT_VERSION },
     { instructions: AGENT_INSTRUCTIONS },
   );
 
@@ -209,8 +209,12 @@ export function createAlibabaMcpServer(bridge: AlibabaCaller, options: { cacheDi
 
 async function attempt(bridge: AlibabaCaller, operation: () => Promise<unknown>) {
   try {
-    const body = JSON.stringify(await operation(), null, 2) ?? "null";
-    return { content: [{ type: "text" as const, text: bridge.sanitize(body) }] };
+    const value = await operation();
+    const body = JSON.stringify(value, null, 2) ?? "null";
+    const structuredContent = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : { result: value };
+    return { content: [{ type: "text" as const, text: bridge.sanitize(body) }], structuredContent };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Alibaba request failed.";
     return {

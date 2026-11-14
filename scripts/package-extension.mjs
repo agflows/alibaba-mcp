@@ -14,7 +14,10 @@ const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 const manifest = JSON.parse(await readFile(resolve(extensionDir, "manifest.json"), "utf8"));
 const updates = await readFile(resolve(root, "updates.xml"), "utf8");
 const privateKey = await readFile(keyPath);
-const archive = Buffer.from(zipSync(await extensionEntries(extensionDir), { level: 9 }));
+// A fixed archive timestamp keeps the ZIP and CRX byte-identical across runs from the same source,
+// so a release can be verified by rebuilding it. SOURCE_DATE_EPOCH overrides it for CI provenance.
+const archiveTime = new Date(Number(process.env.SOURCE_DATE_EPOCH ?? 0) * 1000 || Date.UTC(2024, 0, 1));
+const archive = Buffer.from(zipSync(await extensionEntries(extensionDir), { level: 9, mtime: archiveTime, os: 3 }));
 const packed = createCrx(archive, privateKey);
 const codebase = `https://github.com/agflows/alibaba-mcp/releases/download/v${pkg.version}/alibaba-mcp.crx`;
 

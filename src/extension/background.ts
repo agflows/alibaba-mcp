@@ -24,6 +24,7 @@ import {
   type BridgeCommand,
   type BridgeResponse,
 } from "../shared/protocol.js";
+import { SendApprovalGate } from "./send-approval.js";
 import { messengerScriptMissing, messengerTabUnloaded } from "./tab-attach.js";
 import {
   CONNECT_TIMEOUT_MS,
@@ -51,6 +52,8 @@ let connectStartedAt = 0;
 let bootPromise: Promise<void> | null = null;
 const downloads = new Map<string, AbortController>();
 let restorePromise: Promise<void> | null = null;
+const sendApproval = new SendApprovalGate();
+let approvalWindowId: number | undefined;
 
 chrome.runtime.onInstalled.addListener(() => {
   void boot();
@@ -66,12 +69,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, info, tab) => {
-  if (!tab.url?.startsWith("https://message.alibaba.com/")) return;
-  if (tab.id != null && info.status === "complete") {
-    void chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => undefined);
-  }
-  if (info.status !== "complete") return;
+  if (!tab.url?.startsWith("https://message.alibaba.com/") || info.status !== "complete") return;
   void boot();
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (approvalWindowId !== windowId) return;
+  approvalWindowId = undefined;
+  sendApproval.cancel();
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -96,6 +101,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       accessMode = next;
+      if (!canWrite(accessMode)) cancelSendApproval();
       void chrome.storage.local.set({ accessMode });
       sendResponse({ ok: true, accessMode });
     });
@@ -110,6 +116,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: publicError(error) });
       });
     return true;
+  }
+  if (message?.type === "disconnect-clients") {
+    void boot()
+      .then(async () => {
+        cancelSendApproval();
+        proxyToken = createPairingToken();
+        await chrome.storage.local.set({ proxyToken });
+        socketGeneration += 1;
+        const previous = socket;
+        socket = null;
+        previous?.close(1000, "connector secret rotated");
+        bridgeConnected = false;
+        clearSocketTimers();
+        ensureConnected();
+        sendResponse({ ok: true });
+      })
+      .catch((error: unknown) => sendResponse({ ok: false, error: publicError(error) }));
+    return true;
+  }
+  if (message?.type === "get-send-approval") {
+    const approval = sendApproval.snapshot();
+    sendResponse(approval ? { ok: true, approval } : { ok: false, error: "This send request is no longer pending." });
+    return;
+  }
+  if (message?.type === "resolve-send-approval") {
+    if (typeof message.id !== "string" || !sendApproval.decide(message.id, message.approved === true)) {
+      sendResponse({ ok: false, error: "This send request is no longer pending." });
+      return;
+    }
+    closeApprovalWindow();
+    sendResponse({ ok: true });
+    return;
   }
   if (message?.type === "copy-conversation") {
     void boot()
@@ -154,14 +192,16 @@ async function start(): Promise<void> {
 }
 
 async function loadConfig(): Promise<void> {
-  const stored = await chrome.storage.local.get({ accessMode: null, bridgeToken: "", proxyToken: "" });
+  const stored = await chrome.storage.local.get({ accessMode: null, accessSafetyVersion: 0, bridgeToken: "", proxyToken: "" });
+  const safetyVersion = typeof stored.accessSafetyVersion === "number" ? stored.accessSafetyVersion : 0;
   if (stored.accessMode == null) {
     accessMode = DEFAULT_ACCESS;
-    await chrome.storage.local.set({ accessMode });
+    await chrome.storage.local.set({ accessMode, accessSafetyVersion: 1 });
   } else {
     const normalized = normalizeAccessMode(stored.accessMode);
     accessMode = normalized ?? "none";
-    if (!normalized) await chrome.storage.local.set({ accessMode: "none" });
+    if (safetyVersion < 1 && accessMode === "write") accessMode = "read";
+    if (!normalized || safetyVersion < 1) await chrome.storage.local.set({ accessMode, accessSafetyVersion: 1 });
   }
   const storedToken = typeof stored.bridgeToken === "string" ? stored.bridgeToken : "";
   bridgeToken = isValidPairingToken(storedToken) ? storedToken : "";
@@ -258,6 +298,7 @@ function connect(): void {
   ws.addEventListener("close", () => {
     if (generation !== socketGeneration) return;
     abortDownloads();
+    cancelSendApproval();
     bridgeConnected = false;
     if (socket === ws) socket = null;
     connectStartedAt = 0;
@@ -370,6 +411,15 @@ async function handleRequest(request: BridgeCommand): Promise<BridgeResponse> {
       const limit = clampLimit(request.params.limit);
       return { id: request.id, ok: true, result: { attachments: listed.attachments.slice(0, limit) } };
     }
+    if (request.method === "send_message") {
+      const conversationId = readOpaqueId(request.params.conversationId, "Conversation id");
+      const text = readMessageText(request.params.text);
+      const target = await getAlibabaTarget(conversationId);
+      const approved = await requestSendApproval(conversationId, target.conversationTitle, text);
+      if (!approved) throw new Error("The message was not sent because browser approval was declined or timed out.");
+      if (!canWrite(accessMode)) throw new Error("The message was not sent because chat access is no longer Read & write.");
+      return { id: request.id, ok: true, result: await askTabOnTarget(target.tab, "send_message", { conversationId, text }) };
+    }
     return { id: request.id, ok: true, result: await askTab(request.method, request.params) };
   } catch (error) {
     return {
@@ -417,9 +467,16 @@ async function runDownload(request: BridgeCommand, generation: number, ws: WebSo
   }
 }
 
+type AlibabaTarget = { tab: chrome.tabs.Tab; conversationTitle: string };
+
 async function askTab(method: string, params: Record<string, unknown>): Promise<unknown> {
-  const tab = await getAlibabaTab();
-  if (!tab?.id) throw new Error("Open https://message.alibaba.com/ in a logged-in Chrome tab.");
+  const conversationId = typeof params.conversationId === "string" ? params.conversationId.trim() : "";
+  const target = await getAlibabaTarget(conversationId);
+  return askTabOnTarget(target.tab, method, params);
+}
+
+async function askTabOnTarget(tab: chrome.tabs.Tab, method: string, params: Record<string, unknown>): Promise<unknown> {
+  if (tab.id == null) throw new Error("Open https://message.alibaba.com/ in a logged-in Chrome tab.");
   if (messengerTabUnloaded(tab)) await restoreMessengerTab(tab.id);
   const timeoutMs = method === "get_conversation" || method === "send_message" ? 35_000 : 12_000;
   try {
@@ -429,6 +486,80 @@ async function askTab(method: string, params: Record<string, unknown>): Promise<
     await restoreMessengerTab(tab.id);
     return readTabResult(tab.id, method, params, timeoutMs);
   }
+}
+
+async function getAlibabaTarget(conversationId = ""): Promise<AlibabaTarget> {
+  const tabs = await chrome.tabs.query({ url: "https://message.alibaba.com/*" });
+  const ordered = [...tabs].sort((left, right) => Number(Boolean(right.active)) - Number(Boolean(left.active)));
+  if (!ordered.length) throw new Error("Open https://message.alibaba.com/ in a logged-in Chrome tab.");
+  if (!conversationId) return { tab: ordered[0]!, conversationTitle: "Alibaba conversation" };
+
+  for (const tab of ordered) {
+    if (messengerTabUnloaded(tab)) continue;
+    const target = await findConversationInTab(tab, conversationId);
+    if (target) return target;
+  }
+  for (const tab of ordered) {
+    if (tab.id == null || !messengerTabUnloaded(tab)) continue;
+    try {
+      await restoreMessengerTab(tab.id);
+      const restored = await chrome.tabs.get(tab.id);
+      const target = await findConversationInTab(restored, conversationId);
+      if (target) return target;
+    } catch {
+      // Continue to the next account. The final error explains how to recover.
+    }
+  }
+  throw new Error("That conversation was not found in any open Alibaba Messages tab. Check which Alibaba account is open.");
+}
+
+async function findConversationInTab(tab: chrome.tabs.Tab, conversationId: string): Promise<AlibabaTarget | null> {
+  if (tab.id == null) return null;
+  try {
+    const identity = await readTabResult(tab.id, "get_conversation_identity", { conversationId }, 10_000);
+    if (!identity || typeof identity !== "object" || Array.isArray(identity)) return null;
+    const record = identity as { id?: unknown; title?: unknown };
+    if (record.id !== conversationId || typeof record.title !== "string" || !record.title.trim()) return null;
+    return { tab, conversationTitle: record.title.trim().slice(0, 300) };
+  } catch {
+    return null;
+  }
+}
+
+async function requestSendApproval(conversationId: string, conversationTitle: string, text: string): Promise<boolean> {
+  const { id, decision } = sendApproval.begin({ conversationId, conversationTitle, text });
+  try {
+    const approvalWindow = await chrome.windows.create({
+      url: chrome.runtime.getURL("confirm.html"),
+      type: "popup",
+      width: 500,
+      height: 640,
+      focused: true,
+    });
+    if (sendApproval.snapshot()?.id !== id) return decision;
+    if (approvalWindow?.id == null) sendApproval.cancel();
+    else approvalWindowId = approvalWindow.id;
+  } catch {
+    sendApproval.cancel();
+  }
+  return decision.finally(() => closeApprovalWindow());
+}
+
+function cancelSendApproval(): void {
+  sendApproval.cancel();
+  closeApprovalWindow();
+}
+
+function closeApprovalWindow(): void {
+  const windowId = approvalWindowId;
+  approvalWindowId = undefined;
+  if (windowId != null) void chrome.windows.remove(windowId).catch(() => undefined);
+}
+
+function readMessageText(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error("Message text is required.");
+  if (value.length > 10_000) throw new Error("Message text is too long.");
+  return value;
 }
 
 async function readTabResult(tabId: number, method: string, params: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
@@ -509,14 +640,9 @@ async function pageStatusFromTab(tabId: number): Promise<unknown> {
 }
 
 async function keepMessengerTabsLoaded(): Promise<void> {
-  const tabs = await chrome.tabs.query({ url: "https://message.alibaba.com/*" });
-  for (const tab of tabs) {
-    if (tab.id == null) continue;
-    if (tab.autoDiscardable !== false) {
-      await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => undefined);
-    }
-    if (messengerTabUnloaded(tab)) await restoreMessengerTab(tab.id);
-  }
+  // Do not reload or pin tabs merely because the extension started. A requested
+  // operation restores an unloaded messenger tab when necessary.
+  await chrome.tabs.query({ url: "https://message.alibaba.com/*" });
 }
 
 function restoreMessengerTab(tabId: number): Promise<void> {
@@ -581,9 +707,5 @@ async function browserAuthProof(token: string, challenge: string): Promise<strin
 
 async function getAlibabaTab(): Promise<chrome.tabs.Tab | undefined> {
   const tabs = await chrome.tabs.query({ url: "https://message.alibaba.com/*" });
-  const tab = tabs.find((item) => item.active) ?? tabs[0];
-  if (tab?.id != null && tab.autoDiscardable !== false) {
-    await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => undefined);
-  }
-  return tab;
+  return tabs.find((item) => item.active) ?? tabs[0];
 }

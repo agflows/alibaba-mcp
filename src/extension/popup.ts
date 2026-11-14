@@ -6,8 +6,9 @@ const copyConversationButton = document.querySelector<HTMLButtonElement>("[data-
 const copySetupButton = document.querySelector<HTMLButtonElement>("[data-copy-setup]")!;
 const installButton = document.querySelector<HTMLAnchorElement>("[data-install]")!;
 const companionCopy = document.querySelector<HTMLElement>("[data-companion-copy]")!;
+const disconnectClientsButton = document.querySelector<HTMLButtonElement>("[data-disconnect-clients]")!;
 const options = [...document.querySelectorAll<HTMLButtonElement>("[data-access]")];
-let currentAccess: AccessMode = "write";
+let currentAccess: AccessMode = "read";
 let conversationCopyPending = false;
 let setupCopyPending = false;
 
@@ -37,6 +38,23 @@ copySetupButton.addEventListener("click", async () => {
   } finally {
     setupCopyPending = false;
     copySetupButton.disabled = false;
+  }
+});
+
+disconnectClientsButton.addEventListener("click", async () => {
+  const confirmed = window.confirm(
+    "Disconnect every MCP client? Existing connector credentials will stop working. You will need to copy the new instructions and update the local attachment companion.",
+  );
+  if (!confirmed) return;
+  disconnectClientsButton.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "disconnect-clients" });
+    if (!result?.ok) throw new Error(typeof result?.error === "string" ? result.error : "Clients could not be disconnected");
+    statusText.textContent = "Clients disconnected";
+  } catch (error) {
+    statusText.textContent = error instanceof Error ? error.message : "Clients could not be disconnected";
+  } finally {
+    disconnectClientsButton.disabled = false;
   }
 });
 
@@ -94,16 +112,16 @@ async function refresh(): Promise<void> {
     const unavailable = Boolean(config.pairingUnavailable) && !connected;
     statusDot.dataset.connected = String(connected);
     statusText.textContent = connected
-      ? "Securely connected"
+      ? "Relay connected"
       : unavailable
-        ? "Companion already paired"
-        : "Waiting for companion";
+        ? "Local companion already paired"
+        : "Connecting to relay";
     companionCopy.textContent = connected
-      ? "This browser is linked. Copy the instructions into Claude, ChatGPT, or Cursor."
+      ? "The hosted relay is reachable. Copy the instructions into Claude, ChatGPT, or Cursor."
       : unavailable
-        ? "Reset the companion pairing state, then restart the agent."
-        : "Copy the instructions into Claude, ChatGPT, or Cursor. Keep the messenger tab open.";
-    installButton.hidden = connected || unavailable;
+        ? "Reset the local companion pairing state, then restart it."
+        : "Keep the messenger tab open while the extension reconnects.";
+    installButton.hidden = false;
   } catch {
     statusText.textContent = "Extension unavailable";
   }

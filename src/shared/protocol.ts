@@ -4,7 +4,8 @@ export const BRIDGE_URL = `ws://${BRIDGE_HOST}:${BRIDGE_PORT}`;
 export const PROXY_ORIGIN = "alibaba-mcp-proxy.leogruetzner.com";
 export const PROXY_URL = `wss://${PROXY_ORIGIN}/relay`;
 export const MCP_URL = `https://${PROXY_ORIGIN}/mcp`;
-export const DEFAULT_ACCESS: AccessMode = "write";
+export const PROJECT_VERSION = "0.2.0";
+export const DEFAULT_ACCESS: AccessMode = "read";
 export const PAIRING_TOKEN_BYTES = 32;
 export const DEVELOPMENT_EXTENSION_ID = "ecklkjobkachpelpldagkdidgnjgpibf";
 
@@ -15,9 +16,10 @@ export const AGENT_INSTRUCTIONS = [
   "alibaba-mcp connects this agent to the user's Chrome tab at https://message.alibaba.com/.",
   "The Alibaba session stays in Chrome. Do not ask for cookies, passwords, or session tokens.",
   "Call alibaba_status first.",
-  "Access is exactly one of none, read, or read/write. The extension enforces it. The default is read/write.",
+  "Access is exactly one of none, read, or read/write. The extension enforces it. The default is read-only.",
   "Read and send by conversation id through the open messenger page. The open chat does not have to change.",
   SEND_APPROVAL_INSTRUCTION,
+  "The extension also requires a browser confirmation for the exact conversation and message before every send.",
   "If the extension is disconnected, ask the user to open alibaba-mcp and keep the Alibaba tab open.",
   "Use alibaba_list_attachments for file names and sizes. Never ask for, display, or store Alibaba download URLs or signed links. Saving a file onto a computer needs the local companion.",
 ].join("\n");
@@ -215,6 +217,7 @@ export function formatAgentSetup(input: { proxyToken?: string } = {}): string {
       "Use alibaba_status first.",
       "Attachment files stay in the browser until a local companion downloads them. Do not ask for or display Alibaba download URLs.",
       SEND_APPROVAL_INSTRUCTION,
+      "The extension requires a second browser confirmation before every send.",
     ].join("\n");
   }
   if (!isValidPairingToken(input.proxyToken)) throw new Error("Relay secret is invalid.");
@@ -238,5 +241,6 @@ export function formatAgentSetup(input: { proxyToken?: string } = {}): string {
     "Use alibaba_status first.",
     "Attachment files stay in the browser until a local companion downloads them. Do not ask for or display Alibaba download URLs.",
     SEND_APPROVAL_INSTRUCTION,
+    "The extension requires a second browser confirmation before every send.",
   ].join("\n");
 }

@@ -10,6 +10,11 @@ const HELLO_TIMEOUT_MS = 5_000;
 const LONE_PEER_MS = 120_000;
 const MAX_BUFFER_BYTES = 256 * 1024;
 const MAX_ROOMS = 500;
+const MAX_PENDING_CALLS = 8;
+const MAX_CLIENT_CONNECTIONS = 8;
+const MAX_CLIENT_ATTEMPTS_PER_MINUTE = 30;
+const MAX_RATE_LIMIT_CLIENTS = 10_000;
+const MAX_OAUTH_REQUESTS_PER_MINUTE = 20;
 const PING_MS = 25_000;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
@@ -34,6 +39,7 @@ type Room = {
   agent?: Peer;
   loneTimer?: NodeJS.Timeout;
   pending: Map<string, PendingCall>;
+  lastActive: number;
 };
 
 export type ProxyHandle = {
@@ -41,10 +47,15 @@ export type ProxyHandle = {
   close: () => Promise<void>;
 };
 
-export function startProxy(options: { host?: string; port?: number; publicOrigin?: string } = {}): Promise<ProxyHandle> {
+export function startProxy(options: { host?: string; port?: number; publicOrigin?: string; trustProxyHeaders?: boolean } = {}): Promise<ProxyHandle> {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 0;
   const rooms = new Map<string, Room>();
+  const connectionCounts = new Map<string, number>();
+  const attempts = new Map<string, { count: number; resetAt: number }>();
+  const httpAttempts = new Map<string, { count: number; resetAt: number }>();
+  const connectionKeys = new WeakMap<WebSocket, string>();
+  const alive = new WeakMap<WebSocket, boolean>();
   let boundPort = 0;
   const remote = createRemoteMcp({
     origin: () => options.publicOrigin ?? `http://127.0.0.1:${boundPort}`,
@@ -62,6 +73,14 @@ export function startProxy(options: { host?: string; port?: number; publicOrigin
       response.end("ok\n");
       return;
     }
+    if (isOAuthWritePath(request)) {
+      const clientKey = clientAddress(request, options.trustProxyHeaders === true);
+      if (!allowAttempt(clientKey, httpAttempts, MAX_OAUTH_REQUESTS_PER_MINUTE)) {
+        response.writeHead(429, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "retry-after": "60" });
+        response.end("too many requests\n");
+        return;
+      }
+    }
     void remote.handle(request, response).then((handled) => {
       if (handled || response.writableEnded) return;
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
@@ -75,7 +94,14 @@ export function startProxy(options: { host?: string; port?: number; publicOrigin
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES, perMessageDeflate: false });
   const ping = setInterval(() => {
     for (const client of sockets.clients) {
-      if (client.readyState === WebSocket.OPEN) client.ping();
+      if (alive.get(client) === false) {
+        client.terminate();
+        continue;
+      }
+      if (client.readyState === WebSocket.OPEN) {
+        alive.set(client, false);
+        client.ping();
+      }
     }
   }, PING_MS);
   ping.unref?.();
@@ -85,12 +111,28 @@ export function startProxy(options: { host?: string; port?: number; publicOrigin
       socket.destroy();
       return;
     }
+    const clientKey = clientAddress(request, options.trustProxyHeaders === true);
+    if (!allowConnection(clientKey, attempts, connectionCounts)) {
+      socket.destroy();
+      return;
+    }
     sockets.handleUpgrade(request, socket, head, (client) => {
+      connectionKeys.set(client, clientKey);
+      connectionCounts.set(clientKey, (connectionCounts.get(clientKey) ?? 0) + 1);
       sockets.emit("connection", client);
     });
   });
 
   sockets.on("connection", (socket) => {
+    alive.set(socket, true);
+    socket.on("pong", () => alive.set(socket, true));
+    socket.once("close", () => {
+      const key = connectionKeys.get(socket);
+      if (!key) return;
+      const next = (connectionCounts.get(key) ?? 1) - 1;
+      if (next > 0) connectionCounts.set(key, next);
+      else connectionCounts.delete(key);
+    });
     const timer = setTimeout(() => socket.close(1008, "hello timeout"), HELLO_TIMEOUT_MS);
     const fail = (code: number, reason: string) => {
       clearTimeout(timer);
@@ -107,7 +149,7 @@ export function startProxy(options: { host?: string; port?: number; publicOrigin
         fail(1008, "hello required");
         return;
       }
-      if (rooms.size >= MAX_ROOMS && !rooms.has(hello.key)) {
+      if (rooms.size >= MAX_ROOMS && !rooms.has(hello.key) && !evictOldestIdleRoom(rooms)) {
         fail(1013, "busy");
         return;
       }
@@ -172,15 +214,17 @@ function parseHello(data: RawData): { key: string; role: Role } | null {
 function join(rooms: Map<string, Room>, key: string, role: Role, socket: WebSocket): void {
   let room = rooms.get(key);
   if (!room) {
-    room = { pending: new Map() };
+    room = { pending: new Map(), lastActive: Date.now() };
     rooms.set(key, room);
   }
+  room.lastActive = Date.now();
   const previous = room[role];
   if (previous && previous.socket !== socket) previous.socket.close(4000, "replaced");
   const peer: Peer = { role, socket, buffer: [], binary: [], buffered: 0 };
   room[role] = peer;
   const otherRole: Role = role === "extension" ? "agent" : "extension";
   socket.on("message", (data, isBinary) => {
+    room.lastActive = Date.now();
     const current = room[role];
     if (current?.socket !== socket) return;
     if (role === "extension" && !isBinary && takePending(room, data)) return;
@@ -262,8 +306,12 @@ function callExtension(
   if (!room || !socket || socket.readyState !== WebSocket.OPEN) {
     return Promise.reject(new Error("The Alibaba browser is not connected. Open the messenger tab."));
   }
+  if (room.pending.size >= MAX_PENDING_CALLS) {
+    return Promise.reject(new Error("Too many Alibaba requests are already running."));
+  }
   const id = `mcp_${randomUUID()}`;
-  const timeout = method === "get_conversation" || method === "send_message" ? 45_000 : 20_000;
+  const timeout = method === "send_message" ? 90_000 : method === "get_conversation" ? 45_000 : 20_000;
+  room.lastActive = Date.now();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       room.pending.delete(id);
@@ -314,6 +362,66 @@ function isPing(data: RawData): boolean {
   }
 }
 
+function clientAddress(request: IncomingMessage, trustProxyHeaders: boolean): string {
+  if (trustProxyHeaders) {
+    const trusted = request.headers["x-client-ip"];
+    if (typeof trusted === "string" && /^[A-Fa-f0-9:.]{2,64}$/.test(trusted.trim())) return trusted.trim();
+  }
+  return request.socket.remoteAddress ?? "unknown";
+}
+
+function allowConnection(
+  clientKey: string,
+  attempts: Map<string, { count: number; resetAt: number }>,
+  connectionCounts: Map<string, number>,
+): boolean {
+  if ((connectionCounts.get(clientKey) ?? 0) >= MAX_CLIENT_CONNECTIONS) return false;
+  return allowAttempt(clientKey, attempts, MAX_CLIENT_ATTEMPTS_PER_MINUTE);
+}
+
+function isOAuthWritePath(request: IncomingMessage): boolean {
+  const path = (request.url ?? "").split("?")[0];
+  if (path === "/register" || path === "/token") return request.method === "POST";
+  return path === "/authorize";
+}
+
+function allowAttempt(
+  clientKey: string,
+  attempts: Map<string, { count: number; resetAt: number }>,
+  limitPerMinute: number,
+): boolean {
+  const now = Date.now();
+  if (attempts.size >= MAX_RATE_LIMIT_CLIENTS) {
+    for (const [key, record] of attempts) {
+      if (record.resetAt <= now) attempts.delete(key);
+    }
+    while (attempts.size >= MAX_RATE_LIMIT_CLIENTS) {
+      const oldest = attempts.keys().next().value;
+      if (oldest === undefined) break;
+      attempts.delete(oldest);
+    }
+  }
+  const current = attempts.get(clientKey);
+  if (!current || current.resetAt <= now) {
+    attempts.set(clientKey, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  current.count += 1;
+  return current.count <= limitPerMinute;
+}
+
+function evictOldestIdleRoom(rooms: Map<string, Room>): boolean {
+  let candidate: { key: string; room: Room } | undefined;
+  for (const [key, room] of rooms) {
+    if (room.agent || room.pending.size > 0) continue;
+    if (!candidate || room.lastActive < candidate.room.lastActive) candidate = { key, room };
+  }
+  if (!candidate) return false;
+  closeRoom(candidate.room);
+  rooms.delete(candidate.key);
+  return true;
+}
+
 function configuredOrigin(value: string): string {
   const url = new URL(value);
   if (url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
@@ -347,7 +455,12 @@ if (invokedDirectly) {
     process.exit(1);
   }
   const origin = configuredOrigin(process.env.PUBLIC_ORIGIN?.trim() || "https://alibaba-mcp-proxy.leogruetzner.com");
-  startProxy({ host, port, publicOrigin: origin })
+  startProxy({
+    host,
+    port,
+    publicOrigin: origin,
+    trustProxyHeaders: /^(?:1|true|yes)$/i.test(process.env.TRUST_PROXY_HEADERS?.trim() ?? ""),
+  })
     .then((proxy) => {
       console.error(`alibaba-mcp-proxy listening on ${host}:${proxy.port}`);
       const stop = () => {

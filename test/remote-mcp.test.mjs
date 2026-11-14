@@ -173,10 +173,22 @@ test("OAuth sign-in exchanges the connector secret once and rotates refresh toke
     authorize.searchParams.set("code_challenge", challenge);
     authorize.searchParams.set("code_challenge_method", "S256");
     authorize.searchParams.set("state", "browser-state");
+    authorize.searchParams.set("scope", "alibaba");
+    authorize.searchParams.set("resource", `${origin}/mcp`);
+
+    const badScope = new URL(authorize);
+    badScope.searchParams.set("scope", "admin");
+    assert.equal((await fetch(badScope)).status, 400);
+    const badResource = new URL(authorize);
+    badResource.searchParams.set("resource", "https://evil.example/mcp");
+    assert.equal((await fetch(badResource)).status, 400);
+
     const page = await fetch(authorize);
     const html = await page.text();
     assert.equal(page.status, 200);
     assert.equal(html.includes(token), false);
+    assert.match(html, /Claude/);
+    assert.match(html, /127\.0\.0\.1:9/);
     const nonce = html.match(/name="nonce" value="([^"]+)"/)?.[1];
     assert.ok(nonce);
 
@@ -243,6 +255,7 @@ test("OAuth sign-in exchanges the connector secret once and rotates refresh toke
     assert.equal(issued.status, 200);
     const tokens = await issued.json();
     assert.equal(tokens.token_type, "Bearer");
+    assert.equal(tokens.scope, "alibaba");
     assert.equal(tokens.access_token.includes(token), false);
     client = await connectClient(proxy.port, tokens.access_token);
     const listed = await client.listTools();
@@ -271,6 +284,29 @@ test("OAuth sign-in exchanges the connector secret once and rotates refresh toke
   } finally {
     await client?.close();
     extension.socket.close();
+    await proxy.close();
+  }
+});
+
+test("OAuth endpoints are rate limited per client address", { timeout: 20_000 }, async () => {
+  const proxy = await startProxy();
+  const origin = `http://127.0.0.1:${proxy.port}`;
+  try {
+    const statuses = [];
+    for (let index = 0; index < 25; index += 1) {
+      const response = await fetch(`${origin}/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ redirect_uris: ["http://127.0.0.1:9/callback"] }),
+      });
+      statuses.push(response.status);
+      await response.arrayBuffer();
+    }
+    assert.equal(statuses.slice(0, 20).every((status) => status === 201), true);
+    assert.equal(statuses.slice(20).every((status) => status === 429), true);
+    const metadata = await fetch(`${origin}/.well-known/oauth-authorization-server`);
+    assert.equal(metadata.status, 200);
+  } finally {
     await proxy.close();
   }
 });

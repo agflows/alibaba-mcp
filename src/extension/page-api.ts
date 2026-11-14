@@ -62,6 +62,8 @@ if (!page[INSTALLED]) {
           if (error instanceof MessengerUnavailable) return null;
           throw error;
         }
+      case "get_conversation_identity":
+        return messenger.getConversationIdentity(requiredString(request.params.conversationId, "Conversation id is required."));
       case "get_conversation":
         return messenger.getConversation(requiredString(request.params.conversationId, "Conversation id is required."), numberParam(request.params.limit, 100));
       case "send_message":

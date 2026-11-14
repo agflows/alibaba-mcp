@@ -1,7 +1,9 @@
 services:
   proxy:
-    build: .
-    image: alibaba-mcp-proxy:0.1.1
+    build:
+      context: ../..
+      dockerfile: deploy/proxy/Dockerfile
+    image: alibaba-mcp-proxy:0.2.0
     container_name: alibaba-mcp-proxy
     restart: unless-stopped
     read_only: true
@@ -15,6 +17,7 @@ services:
       HOST: 0.0.0.0
       PORT: "8080"
       PUBLIC_ORIGIN: https://alibaba-mcp-proxy.leogruetzner.com
+      TRUST_PROXY_HEADERS: "true"
     networks:
       - edge
 

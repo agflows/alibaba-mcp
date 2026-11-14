@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "alibaba-mcp",
-  "version": "0.1.4",
-  "description": "Give a local AI agent controlled access to your Alibaba conversations.",
+  "version": "0.2.0",
+  "description": "Give an MCP client controlled access to Alibaba Messages, with read-only defaults and browser-confirmed sends.",
   "minimum_chrome_version": "116",
   "incognito": "not_allowed",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAss3XN+08J2GcXBBGbeDCdrh30WxuojdNXXNErv4Cbm178VhNaS/Fee/kS6SfhJ+vyuMMPgqLjBzJozldyuKFhB/einA8rjDdjQWeCx4acsx2YU4j5pekdQ5Be2o4b2MCQ3o5IavyDYqDL91CXwhB0KioLauyp+mBSm5gIoyEAj4sDJSaVyYVh0MO107AUEtsmcX3mFKEBVJBKKx7nmql8IMlBS9YNhhCWb3qGAkHxOVN1mild2Ekk8J7quQvHOO+IXkusVGO12FvWwc2UvMt47u+H7J94O5CYm1+ee5HXtPy1n52wgCG91s6QBs/hP1hjU1KYrN1qcFIWcN3y/dD5wIDAQAB",

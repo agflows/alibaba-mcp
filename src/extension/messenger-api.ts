@@ -77,6 +77,7 @@ export interface MessengerStatus {
 export interface MessengerClient {
   status(): MessengerStatus;
   listConversations(limit: number, search: string): ConversationSummary[];
+  getConversationIdentity(conversationId: string): { id: string; title: string };
   getConversation(conversationId: string, limit: number): Promise<ConversationDetail>;
   sendMessage(conversationId: string, text: string): Promise<MessengerSendResult>;
 }
@@ -116,6 +117,14 @@ export function createMessenger(deps: MessengerDeps): MessengerClient {
         ? listed.filter((conversation) => `${conversation.title}\n${conversation.preview}`.toLocaleLowerCase().includes(query))
         : listed;
       return matched.slice(0, clamp(limit, 1, 100)).map(publicSummary);
+    },
+    getConversationIdentity(conversationId: string) {
+      const id = canonicalConversationId(conversationId);
+      const match = readRecords(deps.conversationRecords()).find((record) => canonicalOrEmpty(record.cid) === id);
+      if (!match) throw new Error("That conversation is not in this Alibaba account's loaded conversation catalog.");
+      const name = safeName(match.name) || "Unknown contact";
+      const company = safeName(match.companyName);
+      return { id, title: company ? `${name} — ${company}` : name };
     },
     getConversation(conversationId: string, limit: number) {
       return exclusive(() => readConversation(deps, conversationId, clamp(limit, 1, 500)));

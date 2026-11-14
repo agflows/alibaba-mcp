@@ -192,6 +192,9 @@ footer {
   font-weight: 620;
 }
 .text-button:hover { color: #202024; background: #f3f3f5; }
+.text-button:disabled { cursor: wait; opacity: .5; }
+.danger-button { color: #9b361c; }
+.danger-button:hover { color: #7e2814; background: #fff1ec; }
 
 .footer-links {
   display: flex;

@@ -1,0 +1,29 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #18181b;
+  background: #f7f7f8;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: radial-gradient(circle at 100% 0%, rgba(255, 111, 0, .12), transparent 35%), #f7f7f8; }
+main { max-width: 500px; min-height: 600px; padding: 24px; }
+.brand-row { display: flex; align-items: center; gap: 13px; margin-bottom: 18px; }
+.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: white; background: linear-gradient(145deg, #ff7a1a, #ff4f00); font-size: 26px; font-weight: 750; }
+.eyebrow { margin: 0 0 2px; color: #73737b; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; }
+h1 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
+h2 { margin: 0 0 8px; font-size: 12px; color: #72727a; text-transform: uppercase; letter-spacing: .06em; }
+.warning { margin: 0 0 16px; padding: 12px 13px; border: 1px solid #ffd5bb; border-radius: 11px; color: #71330d; background: #fff7f1; font-size: 12.5px; line-height: 1.45; }
+section { margin-bottom: 13px; padding: 14px; border: 1px solid #e4e4e7; border-radius: 13px; background: rgba(255,255,255,.9); }
+.conversation-title { margin: 0; font-size: 14px; font-weight: 680; line-height: 1.4; }
+.conversation-id { margin: 5px 0 0; color: #85858d; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; overflow-wrap: anywhere; }
+pre { max-height: 230px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+.timeout { margin: 2px 0 14px; color: #777780; font-size: 11.5px; }
+.error { margin: 0 0 12px; color: #a32424; font-size: 12px; }
+.actions { display: grid; grid-template-columns: 1fr 1.35fr; gap: 9px; }
+button { min-height: 44px; border: 0; border-radius: 11px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 680; }
+button:focus-visible { outline: 3px solid rgba(255, 99, 0, .25); outline-offset: 2px; }
+button:disabled { cursor: wait; opacity: .5; }
+.cancel { color: #333338; background: #e9e9ec; }
+.approve { color: white; background: #d34b00; }
+.approve:hover:not(:disabled) { background: #b94000; }

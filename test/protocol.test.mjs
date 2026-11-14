@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEFAULT_ACCESS,
   SEND_APPROVAL_INSTRUCTION,
   accessError,
   canRead,
@@ -21,6 +22,7 @@ import { nextReconnectDelay, socketNeedsReconnect } from "../.test-build/reconne
 const extensionId = "a".repeat(32);
 
 test("access levels are exclusive and write is read plus send", () => {
+  assert.equal(DEFAULT_ACCESS, "read");
   assert.equal(canRead("none"), false);
   assert.equal(canWrite("none"), false);
   assert.equal(canRead("read"), true);
@@ -72,6 +74,7 @@ test("pairing tokens are high entropy and setup text requires approval", () => {
   assert.match(routed, /Bearer /);
   assert.doesNotMatch(routed, /ALIBABA_MCP_PROXY_TOKEN/);
   assert.equal(routed.includes(SEND_APPROVAL_INSTRUCTION), true);
+  assert.match(routed, /browser confirmation/);
   assert.throws(() => formatAgentSetup({ proxyToken: "short" }), /Relay secret is invalid/);
   assert.match(setup, /Do not ask for or display Alibaba download URLs/);
   assert.doesNotMatch(setup, /cookie/i);

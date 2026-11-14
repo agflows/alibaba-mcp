@@ -7,19 +7,21 @@ import test from "node:test";
 
 const cli = path.resolve(".test-build/installer.mjs");
 
-test("companion setup installs, reports, backs up, and uninstalls without secrets", async () => {
+test("companion setup accepts the connector secret on stdin, reports, backs up, and uninstalls", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "alibaba-installer-"));
   const config = path.join(dir, "mcp.json");
+  const secret = "b".repeat(43);
   try {
     await writeFile(config, '{"other":true,"mcpServers":{"existing":{"command":"x"}}}\n');
-    await run("install", config);
+    const result = await run("install", config, {}, secret, ["--secret-stdin"]);
+    assert.equal(result.stdout.includes(secret), false);
+    assert.equal(result.stderr.includes(secret), false);
     const installed = JSON.parse(await readFile(config, "utf8"));
     assert.equal(installed.other, true);
     assert.deepEqual(installed.mcpServers.existing, { command: "x" });
     assert.equal(installed.mcpServers.alibaba.command, process.execPath);
     assert.equal(Array.isArray(installed.mcpServers.alibaba.args), true);
-    assert.equal("env" in installed.mcpServers.alibaba, false);
-    assert.doesNotMatch(JSON.stringify(installed), /token|secret/i);
+    assert.deepEqual(installed.mcpServers.alibaba.env, { ALIBABA_MCP_PROXY_TOKEN: secret });
 
     const status = JSON.parse((await run("status", config)).stdout);
     assert.equal(status.installed, true);
@@ -56,14 +58,15 @@ test("installer stores only a valid relay secret and does not print it", async (
   }
 });
 
-function run(command, config, extra = {}) {
+function run(command, config, extra = {}, input = "", args = []) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, ALIBABA_MCP_CURSOR_CONFIG: config, ...extra };
     if (!Object.prototype.hasOwnProperty.call(extra, "ALIBABA_MCP_PROXY_TOKEN")) delete env.ALIBABA_MCP_PROXY_TOKEN;
-    const child = spawn(process.execPath, [cli, command], {
+    const child = spawn(process.execPath, [cli, command, ...args], {
       env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+    child.stdin.end(input);
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });

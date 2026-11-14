@@ -28,6 +28,10 @@ async function handle(
       return pageStatus();
     case "list_conversations":
       return listConversations(optionalLimit(params.limit, 30), optionalSearch(params.search));
+    case "get_conversation_identity":
+      return callMessengerPage("get_conversation_identity", {
+        conversationId: requiredId(params.conversationId),
+      }, 8_000);
     case "get_conversation":
       return callMessengerPage("get_conversation", {
         conversationId: requiredId(params.conversationId),

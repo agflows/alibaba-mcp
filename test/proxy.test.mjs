@@ -90,6 +90,22 @@ test("proxy relays both peers and ignores the routing secret after hello", async
   }
 });
 
+test("proxy limits concurrent websocket connections from one client address", async () => {
+  const proxy = await startProxy();
+  const sockets = Array.from({ length: 8 }, () => new WebSocket(`ws://127.0.0.1:${proxy.port}/relay`));
+  for (const socket of sockets) socket.on("error", () => {});
+  try {
+    await Promise.all(sockets.map(opened));
+    const rejected = new WebSocket(`ws://127.0.0.1:${proxy.port}/relay`);
+    rejected.on("error", () => {});
+    await closed(rejected);
+    assert.notEqual(rejected.readyState, WebSocket.OPEN);
+  } finally {
+    for (const socket of sockets) socket.close();
+    await proxy.close();
+  }
+});
+
 test("proxy rejects a routing secret in the url and a bad hello", async () => {
   const proxy = await startProxy();
   try {
